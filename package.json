@@ -14,6 +14,7 @@
     "test:install": "npm run build && python test/install-smoke.py",
     "test:agent-install": "npm run build && python test/agent-install.py",
     "test:search": "npm run build && node test/search-evaluation.mjs",
+    "test:extraction": "npm run build && node test/extraction-evaluation.mjs",
     "test:hooks:codex": "npm run build && node test/agent-codex-session.mjs",
     "test:codex": "npm run build && node test/codex-session.mjs",
     "test:browser": "npm run build && node test/browser-session.mjs",
