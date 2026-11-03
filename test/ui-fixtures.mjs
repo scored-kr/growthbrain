@@ -10,7 +10,7 @@ try{
  await page.goto('https://chatgpt.com/c/fixture');
  await page.evaluate(()=>{
   window.sent=[];window.listeners=[];
-  window.chrome={runtime:{sendMessage:async message=>{window.sent.push(message);return{ok:true}},onMessage:{addListener:fn=>window.listeners.push(fn)}}};
+  window.chrome={runtime:{sendMessage:async message=>{window.sent.push(message);return window.locked?{ok:false,error:'VAULT_LOCKED'}:{ok:true}},onMessage:{addListener:fn=>window.listeners.push(fn)}}};
  });
  await page.addScriptTag({path:resolve('extension/adapters.js')});
  let messages=await page.evaluate(()=>GrowthBrainAdapters.collect(document,'chatgpt.com'));
@@ -23,6 +23,12 @@ try{
  await page.waitForTimeout(1200);assert.equal(await page.evaluate(()=>sent.length),2);
  await page.evaluate(()=>listeners.forEach(fn=>fn({type:'GB_START'})));await page.waitForFunction(()=>sent.length>2);
  assert.equal(await page.evaluate(()=>sent[2].message.text),'영어로 답변해주세요');
+ await page.evaluate(()=>{window.locked=true;document.querySelector('article').textContent='잠금 뒤 새 요청'});
+ await page.waitForFunction(()=>sent.some(m=>m.message.text==='잠금 뒤 새 요청'));
+ const lockedCount=await page.evaluate(()=>sent.length);
+ await page.evaluate(()=>window.locked=false);
+ await page.waitForFunction(count=>sent.length>count,lockedCount);
+ assert.equal(await page.evaluate(()=>sent.at(-1).message.text),'잠금 뒤 새 요청');
  await page.setContent('<div data-message-id="c1"><div data-testid="user-message">keep this</div></div><div data-testid="conversation-turn-2"><div class="font-claude-response">answer</div></div><div data-testid="user-message">no stable id</div>');
  // setContent resets the document, not the JS adapter namespace.
  messages=await page.evaluate(()=>GrowthBrainAdapters.collect(document,'claude.ai'));
@@ -53,7 +59,8 @@ try{
  await popup.click('#enable');await popup.waitForFunction(()=>document.querySelector('#status').textContent.includes('허용되지'));
  assert.equal(await popup.evaluate(()=>fixture.calls.some(c=>c.type==='ENABLE')),false);
  await popup.evaluate(()=>fixture.permission=true);await popup.click('#enable');await popup.waitForFunction(()=>fixture.enabled);
+ assert.match(await popup.locator('#capture-state').textContent(),/아직 확인된 전송 없음/);
  await popup.getByRole('button',{name:'승인',exact:true}).click();await popup.waitForFunction(()=>fixture.status==='active');
  await popup.click('#stop');await popup.waitForFunction(()=>!fixture.enabled);
- console.log(JSON.stringify({kind:'real Chromium DOM/UI fixtures with mocked Chrome API',chatgptAdapter:true,claudeAdapter:true,stableIdRequired:true,dedupPauseResume:true,permissionDenial:true,reviewClick:true,htmlEscaping:true,installedExtensionVerified:false}));
+ console.log(JSON.stringify({kind:'real Chromium DOM/UI fixtures with mocked Chrome API',chatgptAdapter:true,claudeAdapter:true,stableIdRequired:true,dedupPauseResume:true,unlockRetryWithoutDomChange:true,permissionDenial:true,reviewClick:true,htmlEscaping:true,installedExtensionVerified:false}));
 }finally{await browser.close()}

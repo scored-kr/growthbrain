@@ -47,3 +47,28 @@ test('changed vault consent pauses stale browser state without rewriting the oth
  assert.equal(state.reconciled,true);assert.equal(state.local['chatgpt.com'].enabled,false);
  assert.equal(h.calls.filter(c=>c.method==='configure_capture').length,count);
 });
+test('capture status follows acknowledgments, contains no content, and ignores an old project response',async()=>{
+ let project=randomUUID(),fail=true,release,entered;
+ const h=await harness(async request=>{
+  if(request.method==='configure_capture'){project=request.params.projectId;return{result:{}}}
+  if(request.method==='list_projects')return{result:{projects:[],settings:[{site:'chatgpt.com',projectId:project,enabled:true}]}};
+  if(request.method==='capture'){
+   if(fail)return{error:'VAULT_LOCKED'};
+   if(entered){entered();await new Promise(r=>release=r)}
+   return{result:{duplicate:false}};
+  }
+  return{result:{}};
+ });
+ await h.dispatch({type:'ENABLE',site:'chatgpt.com',projectId:project},h.popup);
+ const message={type:'CAPTURE',url:h.page.tab.url,message:{messageId:'one',role:'user',text:'PRIVATE_CAPTURE_MARKER'}};
+ await assert.rejects(h.dispatch(message,h.page),/VAULT_LOCKED/);
+ let status=(await h.dispatch({type:'PROJECTS'},h.popup)).capture['chatgpt.com'];
+ assert.equal(status.state,'failed');assert.equal(status.error,'VAULT_LOCKED');
+ fail=false;await h.dispatch(message,h.page);
+ status=(await h.dispatch({type:'PROJECTS'},h.popup)).capture['chatgpt.com'];
+ assert.equal(status.state,'received');assert.ok(!JSON.stringify(status).includes('PRIVATE_CAPTURE_MARKER'));
+ const started=new Promise(r=>entered=r),pending=h.dispatch(message,h.page);await started;
+ await h.dispatch({type:'ENABLE',site:'chatgpt.com',projectId:randomUUID()},h.popup);release();await pending;
+ assert.equal((await h.dispatch({type:'PROJECTS'},h.popup)).capture['chatgpt.com'],undefined);
+ assert.ok(!JSON.stringify(h.state).includes('PRIVATE_CAPTURE_MARKER'));
+});

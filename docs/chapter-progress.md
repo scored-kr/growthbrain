@@ -13,7 +13,9 @@
 | 4 | Chrome MV3 수집·popup 검토·native host·보존형 설치/해제. 실제 설치 검증 차단 | `d4acb46` |
 | 5 | native 수집/승인→새 MCP 프로세스 조회 통합 검사, 최종 회귀·보안 범위·백업 정리 | `264b6bb` |
 
-| 6 | 로컬 복구 파일·v2 키 포장·분실 비밀번호 복원·실제 PTY 검증 | 이 문서를 포함하는 챕터 6 커밋 |
+| 6 | 로컬 복구 파일·v2 키 포장·분실 비밀번호 복원·실제 PTY 검증 | `4f132c4` |
+
+| 7 | 잠금 후 수집 재시도·페이지/동의 세대 격리·실제 수신 상태 표시 | 이 문서를 포함하는 챕터 7 커밋 |
 
 각 구현 챕터는 독립 커밋으로 푸시했다. 최종 원격 SHA/파일 존재는 작업 완료 보고에서 확인한다.
 `git revert`는 소스를 되돌리는 새 커밋을 만든다. 사용자 금고, 원격 DB, 환경 게시를 되돌리지 않는다.
@@ -21,14 +23,14 @@
 
 ## 확인한 검사
 
-- `npm test`: 26개 실행·26개 통과, 실패/스킵 0개. 엔진/암호화/복원/수집/권한 로직과 실제 stdio MCP·native messaging.
+- `npm test`: 32개 실행·32개 통과, 실패/스킵 0개. 엔진/암호화/복원/수집/권한 로직과 실제 stdio MCP·native messaging.
   native로 수집한 후보를 명시 승인·대체한 후 새 MCP 프로세스가 최신 값을 조회하는 경로 포함.
 - `npm run test:recovery`: 실제 합성 PTY에서 복구 파일 발급→암호문 백업→새 비밀번호 복원→재시작, 비밀값 비출력.
 - `npm run test:terminal`: 실제 합성 PTY에서 비표시 입력·동의·승인·로컬 삭제.
 - `npm run test:install`: mock Codex CLI로 기존 설정 보존·idempotence·사용자 수정 보존·해제.
 - `npm run test:native-install`: 정확한 extension origin, 기존 manifest/launcher 수정 보존·해제.
 - `npm run test:ui`: 실제 Chromium에서 합성 ChatGPT/Claude DOM과 mock Chrome API로
-  안정된 ID 추출·중복·중지/재개·권한 거부·검토 버튼·HTML 이스케이프를 검사.
+  안정된 ID 추출·중복·중지/재개·DOM 변경 없는 잠금 후 재시도·권한 거부·검토 버튼·HTML 이스케이프를 검사.
 
 이 검사들은 AI가 결과물을 개인화했다거나 실제 AI 사이트의 현재 DOM에 설치가 성공했다는 증거가 아니다.
 모든 검사 데이터와 잠금 비밀번호는 합성/임의 데이터이며 실제 사용자 기억을 사용하지 않았다.

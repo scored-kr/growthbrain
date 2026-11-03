@@ -2,6 +2,8 @@ const sites=['chatgpt.com','claude.ai'];
 const popupUrl=chrome.runtime.getURL('popup.html');
 const host='com.growthbrain.local';
 const controls=new Map(),revisions=new Map();let storageQueue=Promise.resolve();
+// Ephemeral operational metadata only: no conversation text, URLs or project names.
+const captureStatus=new Map();
 const revision=site=>{const next=(revisions.get(site)??0)+1;revisions.set(site,next);return next};
 function enqueue(site,action){const run=(controls.get(site)??Promise.resolve()).then(action);controls.set(site,run.catch(()=>{}));return run}
 const origin=site=>`https://${site}/*`;
@@ -35,10 +37,16 @@ export async function dispatch(message,sender){
   if(message.type==='CAPTURE'){
     const url=new URL(sender.tab?.url??'https://invalid.example');const site=url.hostname;
     if(sender.id!==chrome.runtime.id||!sites.includes(site)||url.protocol!=='https:'||canonical(message.url)!==canonical(url.href))throw Error('UNTRUSTED_PAGE');
-    const state=(await settings())[site];
-    if(!state?.enabled||!await chrome.permissions.contains({origins:[origin(site)]}))throw Error('PAUSED');
+    const token=revisions.get(site)??0,state=(await settings())[site];
+    if(!state?.enabled||!await chrome.permissions.contains({origins:[origin(site)]})||(revisions.get(site)??0)!==token)throw Error('PAUSED');
     const m=message.message;
-    return await native('capture',{site,projectId:state.projectId,url:canonical(url.href),messageId:m.messageId,role:m.role,text:m.text});
+    try{
+      const result=await native('capture',{site,projectId:state.projectId,url:canonical(url.href),messageId:m.messageId,role:m.role,text:m.text});
+      if((revisions.get(site)??0)===token)captureStatus.set(site,{state:'received',at:new Date().toISOString(),duplicate:!!result.duplicate});return result;
+    }catch(error){
+      const known=['VAULT_LOCKED','LOCAL_VAULT_UNAVAILABLE','CAPTURE_NOT_CONSENTED','CAPTURE_LIMIT','MEMORY_LIMIT','VAULT_SIZE_LIMIT'];
+      if((revisions.get(site)??0)===token)captureStatus.set(site,{state:'failed',at:new Date().toISOString(),error:known.includes(error.message)?error.message:'REQUEST_FAILED'});throw error;
+    }
   }
   if(sender.id!==chrome.runtime.id||sender.url!==popupUrl)throw Error('POPUP_REQUIRED');
   if(message.type==='PROJECTS'){
@@ -51,7 +59,7 @@ export async function dispatch(message,sender){
         await chrome.scripting.unregisterContentScripts({ids:[`growth-brain-${site.replace('.','-')}`]}).catch(()=>{});reconciled=true;
       }
     }
-    return {...remote,local:await settings(),reconciled};
+    return {...remote,local:await settings(),capture:Object.fromEntries(captureStatus),reconciled};
   }
   if(message.type==='ENABLE'){
     if(!sites.includes(message.site))throw Error('INVALID_SITE');
@@ -60,6 +68,7 @@ export async function dispatch(message,sender){
     return await enqueue(message.site,async()=>{
       if(revisions.get(message.site)!==token)return{enabled:false};
       // Keep local capture paused until the engine has acknowledged consent.
+      captureStatus.delete(message.site);
       await setSite(message.site,{enabled:false,projectId:message.projectId});
       await native('configure_capture',{site:message.site,projectId:message.projectId,enabled:true});
       if(revisions.get(message.site)!==token)return{enabled:false};
