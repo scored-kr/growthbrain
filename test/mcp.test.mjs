@@ -22,6 +22,7 @@ test('real stdio MCP transport retrieves scoped memory, records candidates, deni
     const old=approve(e,proposal({type:'project',projectId:project.id},'cta','지금 구매'));
     approve(e,proposal({type:'project',projectId:project.id},'cta','무료 상담',{supersedesId:old}));
     approve(e,proposal({type:'project',projectId:project.id},'tone','과장 없는 전문적인 어조'));
+    approve(e,proposal({type:'project',projectId:project.id},'budget','월 50만원 이하'));
     approve(e,proposal({type:'project',projectId:other.id},'secret','OTHER_PROJECT_SECRET'));
   });
   const broker=await startBroker(vault,directory);
@@ -51,6 +52,11 @@ test('real stdio MCP transport retrieves scoped memory, records candidates, deni
   assert.equal(first.value.conditions.find(x=>x.key==='tone').value,'과장 없는 전문적인 어조');
   assert.equal(first.value.conditions.find(x=>x.key==='cta').value,'무료 상담');
   assert.ok(!JSON.stringify(first).includes('OTHER_PROJECT_SECRET'));
+  const topicSearch=await invoke('search_memory',{projectId:project.id,query:'돈을 얼마나 써도 돼'});
+  assert.equal(topicSearch.value.retrieval,'local-lexical-topic-v2');
+  assert.equal(topicSearch.value.matches[0].value,'월 50만원 이하');
+  assert.deepEqual(topicSearch.value.matches[0].matchedTopics,['budget']);
+  assert.deepEqual((await invoke('search_memory',{projectId:project.id,query:'얼마까지 쓸 수 있지',requestConditions:{budget:'이번 요청에서 지정한 한도'}})).value.matches,[]);
   assert.deepEqual((await invoke('search_memory',{projectId:project.id,query:'지금 구매'})).value.matches,[]);
   const p=await invoke('propose_memory',proposal({type:'project',projectId:project.id},'style','CANDIDATE_ONLY',{source:{kind:'ai',reference:'synthetic:ai',excerpt:'inferred style'}}));
   assert.equal(p.value.status,'candidate');

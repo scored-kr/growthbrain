@@ -60,7 +60,8 @@ Codex/Claude Code 자동 대화 수집은 [에이전트 훅 설치·동의](agen
 - `search_memory(projectId?, query, limit?, requestConditions?)`: 공통/프로젝트별 로컬 역색인 검색.
   추가 검색마다 `get_context`와 같은 현재 명시 요청 조건을 전달한다. 그 조건으로 덮어쓴
   저장 기억은 제외하며 현재 요청을 확정 기억으로 저장하거나 검색 결과에 추가하지 않는다.
-  `matches`, 관련도/일치어, `routing`, `searchedScopes`, 크기/개수 제한의 `omittedCount`를 반환한다.
+  `matches`, 관련도/일치어(`matchedTerms`)/조건(`matchedTopics`), `routing`, `searchedScopes`,
+  크기/개수 제한의 `omittedCount`를 반환한다.
   확정된 프로젝트 UUID도 추가 검색에 전달한다. [색인 구조와 평가 한계](memory-index.md)를 참고한다.
 - `propose_memory(scope, kind, key, value, source, reason, supersedesId?)`: 후보만 저장.
 
@@ -80,7 +81,8 @@ AI가 조립한 현재 요청이나 기억의 의미를 암호화가 검증하�
   셸 권한을 가진 AI로부터 열린 금고를 격리하는 샌드박스는 아니다. 로컬 검토 UI도 이 경계를 따른다.
 - 잠금 시 키 버퍼는 지우지만 JS 런타임의 모든 과거 문자열·힙 복사본 완전 삭제는 보장하지 않는다.
 - 상태 전체를 암호화하며 최대 파일 16 MiB/기억 10,000개를 제한한다. 분할 저장·증분 동기화와
-  서버 회원별 용량 정책은 별도 작업이다. 검색은 키워드이며 의미 기반 검색을 구현하지 않았다.
+  서버 회원별 용량 정책은 별도 작업이다. 검색은 어휘+제한된 조건 개념 보조이며 임베딩 기반
+  일반 의미 검색은 없다. [기억 품질 평가](memory-quality.md)에서 범위와 알려진 누락을 확인한다.
 - 내부 상태는 에이전트 수집을 포함한 v4다. v1~v3는 인증 후 메모리에서 변환하며 다음 저장 때
   기록한다. 기존 금고를 열면 전환 전 암호문 백업을 보존한다. 암호문 envelope v1/v2와 별개다.
 - 캡처 설정은 사이트별 동의와 프로젝트 ID를 금고 안에 저장한다. 최대 5,000개 캡처, 동일

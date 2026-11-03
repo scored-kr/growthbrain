@@ -1,4 +1,4 @@
-// Synthetic diagnostic corpus, not an estimate of real-user or semantic accuracy.
+// Legacy synthetic corpus retained for regression; broader coverage is in test:retrieval.
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
@@ -17,7 +17,7 @@ const cases=[
   ['한국어','language'],['언어','language'],['말투','tone'],['말투는','tone'],['전문적인','tone'],
   ['상담을','cta'],['무료 상담','cta'],['cta','cta'],['예산','budget'],['마감','deadline'],
   ['대상','audience'],['브랜드','brand'],['ＡＵＲＯＲＡ','brand'],['paragraph','format'],['새로운혜택','offer'],
-  // Known unsupported paraphrases stay in the denominator and are reported as misses.
+  // These chapter-12 misses are now covered by limited topic cues.
   ['돈을 얼마나 써도 돼','budget'],['독자가 행동하게 만드는 문구','cta'],
 ];
 const active=engine.getContext({projectId:project.id,maxCharacters:32000}).conditions;

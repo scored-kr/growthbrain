@@ -1,0 +1,15 @@
+{
+  "description":"Synthetic development corpus v2, frozen before chapter 14 implementation; includes unsupported paraphrases and negative controls.",
+  "positive":[
+    ["한국어","language"],["답변 언어","language"],["which language should I reply in","language"],["어느 언어로 작성하지","language"],["response language","language"],
+    ["말투는","tone"],["글의 분위기는 어떻게 잡지","tone"],["writing voice","tone"],["how should the answer sound","tone"],["formal or casual","tone"],
+    ["출력 형식","format"],["answer structure","format"],["답변은 어떤 형태로 써야 해","format"],["bullets or a table","format"],["ＰＡＲＡＧＲＡＰＨ","format"],
+    ["대상 독자","audience"],["누구를 위한 글이야","audience"],["who are we writing for","audience"],["reader profile","audience"],["누구에게 쓰는 내용이지","audience"],
+    ["예산","budget"],["돈을 얼마나 써도 돼","budget"],["얼마까지 쓸 수 있지","budget"],["지출 상한","budget"],["how much can we spend","budget"],["spending ceiling","budget"],["monthly spend cap","budget"],
+    ["마감","deadline"],["언제까지 끝내야 하지","deadline"],["납기","deadline"],["when is this due","deadline"],["by when should we deliver","deadline"],
+    ["브랜드명","brand"],["제품 이름","brand"],["brand identity","brand"],["what is the product called","brand"],["ＡＵＲＯＲＡ","brand"],
+    ["CTA","cta"],["독자가 행동하게 만드는 문구","cta"],["다음 행동을 유도하는 문구","cta"],["what should the reader do next","cta"],["call-to-action","cta"],["무료 상담을","cta"],
+    ["돈줄의 굵기를 정했던 값","budget"],["사람 마음을 움직일 마지막 한 방","cta"]
+  ],
+  "negative":["타사기밀","미승인제안","옛날할인","종료된사항","친근한","obsolete_campaign","돈의 역사를 알려줘","독자적인 알고리즘","전환율의 통계 분포","tonearm repair","brandishing sword","formatting disk","budgetary committee","언어학 논문 목록","UNKNOWN_NEEDLE_zz9"]
+}

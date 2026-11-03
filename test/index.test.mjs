@@ -55,8 +55,9 @@ test('ranked index handles labels, normalization and limited Korean particles wi
   const found=engine.search(project.id,'무료 상담');
   assert.ok(found.matches[0].score>0);assert.deepEqual(found.matches[0].matchedTerms,['무료','상담']);
   assert.ok(found.matches[0].source.excerpt.includes('즉시구매'));
-  // Lexical retrieval has a documented paraphrase gap, not invented semantic confidence.
-  assert.deepEqual(engine.search(project.id,'돈을 얼마나 써도 돼').matches,[]);
+  // Narrow topic assistance is explicit evidence, not invented semantic confidence.
+  assert.equal(engine.search(project.id,'돈을 얼마나 써도 돼').matches[0].key,'budget');
+  assert.deepEqual(engine.search(project.id,'돈을 얼마나 써도 돼').matches[0].matchedTopics,['budget']);
 });
 
 test('cached indexes invalidate on approval, supersession and retirement; rejected forks cannot poison the parent',()=>{

@@ -256,13 +256,13 @@ export class MemoryEngine {
   }
   search(projectId: string|undefined, query: string, limit = 20, requestConditions: unknown = {}) {
     const parsed = searchSchema.parse({projectId, query, limit, requestConditions});
-    this.effectiveMemories(undefined,parsed.requestConditions);
+    if(Object.keys(parsed.requestConditions).length>50)throw new Error('REQUEST_CONDITION_LIMIT');
     const routing=this.routeProject(parsed.projectId,parsed.query);
     const found=this.memoryIndexes().search(parsed.query,routing.projectId,parsed.requestConditions);
     let used = 0;
-    const matches = found.slice(0,limit).map(({memory:m,score,matchedTerms}) => ({id:m.id,key:m.key,value:m.value,scope:structuredClone(m.scope),source:structuredClone(m.source),reason:m.reason,score,matchedTerms})).filter(m => {
+    const matches = found.slice(0,limit).map(({memory:m,score,matchedTerms,matchedTopics}) => ({id:m.id,key:m.key,value:m.value,scope:structuredClone(m.scope),source:structuredClone(m.source),reason:m.reason,score,matchedTerms,matchedTopics})).filter(m => {
       const size=JSON.stringify(m).length; if (used+size>32000) return false; used+=size; return true;
     });
-    return { matches, omittedCount: found.length - matches.length,routing:{...routing,projectId:routing.projectId??null},searchedScopes:routing.projectId?['global',`project:${routing.projectId}`]:['global'],retrieval:'local-inverted-bm25-v1' };
+    return { matches, omittedCount: found.length - matches.length,routing:{...routing,projectId:routing.projectId??null},searchedScopes:routing.projectId?['global',`project:${routing.projectId}`]:['global'],retrieval:'local-lexical-topic-v2' };
   }
 }

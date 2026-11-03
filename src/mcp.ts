@@ -17,7 +17,7 @@ server.registerTool('get_context', {
   annotations: { readOnlyHint: true, openWorldHint: false },
 }, handle('get_context'));
 server.registerTool('search_memory', {
-  description: 'Search the common local index first, plus one explicitly selected or uniquely user-triggered project index. Uses normalized lexical terms, Korean character grams and BM25 ranking; scores are not confidence probabilities. Pass the same current requestConditions as get_context. Excludes candidates, rejected/superseded/retired memories and overridden values. Provenance is returned as evidence, not indexed as a current condition. Report routing ambiguity and omittedCount.',
+  description: 'Search the common local index first, plus one explicitly selected or uniquely user-triggered project index. Combines normalized lexical terms/Korean grams/BM25 with limited Korean/English topic cues for language, tone, format, audience, budget, deadline, brand and CTA. matchedTerms and matchedTopics explain retrieval; scores are not probabilities or general semantic understanding. Pass the resolved projectId and same current requestConditions as get_context. Excludes unapproved, superseded, retired and overridden memories. Provenance is evidence, not a search field. Report routing ambiguity and omittedCount.',
   inputSchema: searchSchema,
   annotations: { readOnlyHint: true, openWorldHint: false },
 }, handle('search_memory'));

@@ -1,8 +1,8 @@
 import type { Memory } from './model.js';
+import { memoryTopics, normalized, topicForKey, queryTopics, type MemoryTopic } from './memory-topics.js';
 
-export const normalizeText=(text:string)=>text.normalize('NFKC').toLocaleLowerCase('en-US');
+export const normalizeText=normalized;
 const stopWords=new Set(['the','a','an','is','are','please','what','how','for','of','to','and','지난번','이번','이번에는','어떤','어떻게','알려줘','알려주세요','해줘','해주세요','관련','대한','추천']);
-const labels:Record<string,string>={language:'언어 language',tone:'말투 어조 톤 tone',brand:'브랜드 brand',cta:'행동유도 전환 cta',format:'형식 포맷 format',audience:'대상 독자 audience',budget:'예산 budget',deadline:'마감 일정 deadline'};
 const words=(text:string)=>normalizeText(text).match(/[\p{L}\p{N}]+/gu)??[];
 const stem=(word:string)=>{
   if(/^[a-z]{4,}$/.test(word))return word.replace(/ies$/,'y').replace(/(?<!s)s$/,'');
@@ -16,7 +16,8 @@ function documentTerms(memory:Memory) {
   const frequency=new Map<string,number>();
   const add=(term:string,weight:number)=>frequency.set(term,(frequency.get(term)??0)+weight);
   // Provenance may quote an obsolete/rejected value; it is evidence, not a current retrieval field.
-  for(const [text,weight] of [[memory.key.replace(/[_.-]/g,' '),2],[labels[memory.key.split(/[_.-]/).at(-1)!]??'',2],[memory.value,1]] as const) {
+  const topic=topicForKey(memory.key);
+  for(const [text,weight] of [[memory.key.replace(/[_.-]/g,' '),2],[topic?memoryTopics[topic].join(' '):'',2],[memory.value,1]] as const) {
     for(const word of words(text)) {
       if(stopWords.has(word))continue;
       add(`w:${stem(word)}`,weight);
@@ -31,7 +32,9 @@ function documentTerms(memory:Memory) {
 
 type Group={word:string;exact:string;grams:string[]};
 function queryGroups(query:string):Group[] {
-  return [...new Set(words(query).filter(w=>!stopWords.has(w)))].map(word=>({word,exact:`w:${stem(word)}`,grams:hangul(word)?[...new Set(grams(stem(word)))]:[]}));
+  const tokens=words(query);
+  // A lone syllable inside a sentence (e.g. "한 방") is not enough evidence for "한국어".
+  return [...new Set(tokens.filter(w=>!stopWords.has(w)&&(tokens.length===1||w.length>1)))].map(word=>({word,exact:`w:${stem(word)}`,grams:hangul(word)?[...new Set(grams(stem(word)))]:[]}));
 }
 
 class ScopeIndex {
@@ -40,8 +43,11 @@ class ScopeIndex {
   private postings=new Map<string,Map<string,number>>();
   private lengths=new Map<string,number>();
   private totalLength=0;
+  private topics=new Map<MemoryTopic,Set<string>>();
   add(memory:Memory) {
     this.docs.set(memory.id,memory);this.byKey.set(memory.key,memory);
+    const topic=topicForKey(memory.key);
+    if(topic){let posting=this.topics.get(topic);if(!posting)this.topics.set(topic,posting=new Set());posting.add(memory.id);}
     const terms=documentTerms(memory);let length=0;
     for(const [term,count] of terms) {
       let posting=this.postings.get(term);if(!posting)this.postings.set(term,posting=new Map());
@@ -54,13 +60,14 @@ class ScopeIndex {
     const n=this.docs.size,df=posting!.size,average=this.totalLength/Math.max(1,n),length=this.lengths.get(id)??0;
     return Math.log(1+(n-df+0.5)/(df+0.5))*(tf*2.2)/(tf+1.2*(0.25+0.75*length/Math.max(1,average)));
   }
-  search(groups:Group[],effective:Map<string,Memory>) {
+  search(groups:Group[],topics:Set<MemoryTopic>,isEffective:(memory:Memory)=>boolean) {
     const candidates=new Set<string>();
     for(const group of groups)for(const term of [group.exact,...group.grams])for(const id of this.postings.get(term)?.keys()??[])candidates.add(id);
+    for(const topic of topics)for(const id of this.topics.get(topic)??[])candidates.add(id);
     const ranked=[];
     for(const id of candidates) {
       const memory=this.docs.get(id)!;
-      if(effective.get(memory.key)?.id!==id)continue;
+      if(!isEffective(memory))continue;
       let score=0;const matchedTerms:string[]=[];
       for(const group of groups) {
         const exact=this.score(group.exact,id);
@@ -69,7 +76,9 @@ class ScopeIndex {
         // Do not retrieve a Korean word on a lone shared grammatical ending.
         if(group.grams.length&&matches.length/group.grams.length>=0.67){score+=matches.reduce((a,b)=>a+b,0)/group.grams.length;matchedTerms.push(group.word);}
       }
-      if(matchedTerms.length)ranked.push({memory,score:score*(matchedTerms.length/groups.length)**2,matchedTerms});
+      const topic=topicForKey(memory.key),matchedTopics=topic&&topics.has(topic)?[topic]:[];
+      const lexicalScore=matchedTerms.length?score*(matchedTerms.length/groups.length)**2:0;
+      if(matchedTerms.length||matchedTopics.length)ranked.push({memory,score:lexicalScore+4*matchedTopics.length,matchedTerms,matchedTopics});
     }
     return ranked;
   }
@@ -98,9 +107,11 @@ export class MemoryIndexes {
     return effective;
   }
   search(query:string,projectId:string|undefined,requestConditions:Record<string,string>) {
-    const groups=queryGroups(query),effective=this.effective(projectId,requestConditions);
-    const common=this.common.search(groups,effective);
-    const project=projectId?this.projects.get(projectId)?.search(groups,effective)??[]:[];
+    const groups=queryGroups(query),topics=queryTopics(query),selected=projectId?this.projects.get(projectId):undefined;
+    // Check overlay eligibility only for posting candidates: no full-store Map copies on every search.
+    const isEffective=(memory:Memory)=>!Object.hasOwn(requestConditions,memory.key)&&(memory.scope.type==='project'||!selected?.byKey.has(memory.key));
+    const common=this.common.search(groups,topics,isEffective);
+    const project=selected?.search(groups,topics,isEffective)??[];
     return [...common,...project].sort((a,b)=>b.score-a.score||a.memory.key.localeCompare(b.memory.key));
   }
 }
