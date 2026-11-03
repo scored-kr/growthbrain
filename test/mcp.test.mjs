@@ -43,7 +43,7 @@ test('real stdio MCP transport retrieves scoped memory, records candidates, deni
   assert.equal(first.value.conditions.find(x=>x.key==='tone').value,'과장 없는 전문적인 어조');
   assert.equal(first.value.conditions.find(x=>x.key==='cta').value,'무료 상담');
   assert.ok(!JSON.stringify(first).includes('OTHER_PROJECT_SECRET'));
-  assert.deepEqual((await invoke('search_memory',{projectId:project.id,query:'지금 구매'})).value,[]);
+  assert.deepEqual((await invoke('search_memory',{projectId:project.id,query:'지금 구매'})).value.matches,[]);
   const p=await invoke('propose_memory',proposal({type:'project',projectId:project.id},'style','CANDIDATE_ONLY',{source:{kind:'ai',reference:'synthetic:ai',excerpt:'inferred style'}}));
   assert.equal(p.value.status,'candidate');
   assert.equal(p.value.reviewRequired,true);
@@ -52,7 +52,7 @@ test('real stdio MCP transport retrieves scoped memory, records candidates, deni
   const forbidden=await client.callTool({name:'propose_memory',arguments:{...proposal({type:'global'},'style','bad'),status:'active'}});
   assert.equal(forbidden.isError,true);
   await vault.mutate(e=>e.review(p.value.id,'approve'));
-  assert.equal((await invoke('search_memory',{projectId:project.id,query:'CANDIDATE_ONLY'})).value.length,1);
+  assert.equal((await invoke('search_memory',{projectId:project.id,query:'CANDIDATE_ONLY'})).value.matches.length,1);
   const override=await invoke('get_context',{projectId:project.id,requestConditions:{tone:'이번에는 짧게'}});
   assert.equal(override.value.conditions.find(x=>x.key==='tone').value,'이번에는 짧게');
   assert.ok(!(await readFile(join(directory,'vault.json'),'utf8')).includes('CANDIDATE_ONLY'));

@@ -18,8 +18,9 @@ if (!['init', 'serve'].includes(command ?? '') || extra.length) {
 }
 const directory = resolve(pathArg ?? join(homedir(), '.local', 'share', 'growth-brain'));
 async function hidden(question: string): Promise<string> {
-  process.stdout.write(question);
   process.stdin.setRawMode(true); process.stdin.resume(); process.stdin.setEncoding('utf8');
+  // Disable terminal echo before displaying a prompt that invites secret entry.
+  process.stdout.write(question);
   return await new Promise((resolveAnswer, reject) => {
     let answer = '';
     const done = () => { process.stdin.off('data', receive); process.stdin.setRawMode(false); process.stdout.write('\n'); };
@@ -48,7 +49,7 @@ try {
   const consent = await input.question('Type CONNECT to enable the local MCP connection, or press Enter to close: ');
   if (consent !== 'CONNECT') { await close(); process.exit(0); }
   broker = await startBroker(vault, directory);
-  console.log('Connected locally. Commands: projects, project, propose, candidates, review, delete-all, lock');
+  console.log('Connected locally. Commands: projects, project, memories, propose, candidates, review, delete-all, lock');
   const end = () => { void close().finally(() => process.exit(0)); };
   process.once('SIGTERM', end); process.once('SIGINT', end);
   while (true) {
@@ -56,6 +57,7 @@ try {
     if (action === 'lock') break;
     try {
       if (action === 'projects') console.log(JSON.stringify(vault.read(e => e.snapshot().projects), null, 2));
+      else if (action === 'memories') console.log(JSON.stringify(vault.read(e => e.snapshot().memories), null, 2));
       else if (action === 'project') {
         const name = await input.question('Project name: ');
         console.log(await vault.mutate(e => e.addProject(name)));
@@ -78,7 +80,7 @@ try {
         if (await input.question('Deletes this device’s vault only; external backups and AI-held context remain. Type DELETE to confirm: ') === 'DELETE') {
           await broker?.close(); broker = undefined; await vault.deleteAll(); break;
         }
-      } else console.log('Commands: projects, project, propose, candidates, review, delete-all, lock');
+      } else console.log('Commands: projects, project, memories, propose, candidates, review, delete-all, lock');
     } catch { console.log('Action failed. Check the project/candidate ID, explicit replacement, and field limits. No approval was assumed.'); }
   }
   await close();

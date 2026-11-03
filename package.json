@@ -8,6 +8,9 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node --test test/*.test.mjs",
+    "test:terminal": "npm run build && python test/terminal-smoke.py",
+    "test:install": "npm run build && python test/install-smoke.py",
+    "test:codex": "npm run build && node test/codex-session.mjs",
     "mcp": "node dist/mcp.js",
     "vault": "node dist/cli.js"
   },

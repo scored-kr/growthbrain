@@ -23,6 +23,7 @@ npm run vault -- serve
 
 - `project`: 프로젝트를 생성하고 UUID를 표시한다.
 - `projects`: 현재 금고의 프로젝트 목록.
+- `memories`: 상태·범위·출처·변경 사유와 함께 전체 기억을 확인한다.
 - `propose`: 명시적으로 공통 또는 프로젝트 범위를 선택해 기억 후보를 만든다.
 - `candidates`, `review`: 후보·출처·변경 대상을 보고 APPROVE 또는 REJECT를 입력한다.
 - `lock`: 소켓을 종료하고 메모리상의 키 버퍼를 지운다.
@@ -40,7 +41,8 @@ npm run vault -- serve
 
 - `get_context(projectId, requestConditions?, maxCharacters?)`: 승인된 공통/프로젝트 조건의
   유효한 뷰. 현재 명시 요청을 일회성으로 우선 적용한다. 생략 시 `omittedCount`를 반환한다.
-- `search_memory(projectId, query, limit?)`: 유효한 범위의 로컬 키워드 검색.
+- `search_memory(projectId, query, limit?)`: 유효한 범위의 로컬 키워드 검색. `matches`와
+  응답 크기/개수 제한으로 생략된 `omittedCount`를 반환한다.
 - `propose_memory(scope, kind, key, value, source, reason, supersedesId?)`: 후보만 저장.
 
 도구에 승인·비밀번호·복구 키·로그인 기능은 없다. 잠금 상태는 `VAULT_LOCKED`로 거부한다.

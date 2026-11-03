@@ -11,6 +11,8 @@ MVP 전체 완료를 의미하지 않습니다. 실제 클라이언트·동기�
 - [복구 상태 및 다음 작업](docs/recovery-status.md)
 - [아키텍처 차이와 적용 결정](docs/architecture-alignment.md)
 - [로컬 실행 및 보호 범위](docs/local-development.md)
+- [Codex 설치·해제](docs/codex-integration.md)
+- [실제 검증 범위와 남은 제한](docs/validation-2026-11-03.md)
 
 Node.js 24 이상에서 `npm ci`, `npm test`로 설치·검증합니다.
 

@@ -50,9 +50,9 @@ export class MemoryEngine {
     this.requireProject(projectId);
     if (Object.keys(requestConditions).length > 50) throw new Error('REQUEST_CONDITION_LIMIT');
     const active = this.state.memories.filter(m => m.status === 'active' && (m.scope.type === 'global' || m.scope.projectId === projectId));
-    const applicable = new Map<string, { key: string; value: string; origin: string; memoryId?: string; source?: Memory['source'] }>();
+    const applicable = new Map<string, { key: string; value: string; origin: string; memoryId?: string; source?: Memory['source']; reason?: string; supersedesId?: string }>();
     for (const type of ['global', 'project']) {
-      for (const m of active.filter(m => m.scope.type === type)) applicable.set(m.key, { key: m.key, value: m.value, origin: type, memoryId: m.id, source: m.source });
+      for (const m of active.filter(m => m.scope.type === type)) applicable.set(m.key, { key: m.key, value: m.value, origin: type, memoryId: m.id, source: m.source, reason:m.reason, ...(m.supersedesId ? {supersedesId:m.supersedesId} : {}) });
     }
     for (const [key, value] of Object.entries(requestConditions)) applicable.set(key, { key, value, origin: 'current_request' });
     const ranks: Record<string, number> = { current_request: 0, project: 1, global: 2 };
@@ -72,6 +72,11 @@ export class MemoryEngine {
         if (m.status === 'active' && m.scope.type === type && (m.scope.type === 'global' || m.scope.projectId === projectId)) effective.set(m.key, m);
       }
     }
-    return [...effective.values()].filter(m => terms.every(t => `${m.key} ${m.value}`.toLocaleLowerCase().includes(t))).slice(0, limit).map(m => ({id:m.id,key:m.key,value:m.value,scope:m.scope,source:m.source}));
+    const found = [...effective.values()].filter(m => terms.every(t => `${m.key} ${m.value}`.toLocaleLowerCase().includes(t)));
+    let used = 0;
+    const matches = found.slice(0,limit).map(m => ({id:m.id,key:m.key,value:m.value,scope:m.scope,source:m.source,reason:m.reason})).filter(m => {
+      const size=JSON.stringify(m).length; if (used+size>32000) return false; used+=size; return true;
+    });
+    return { matches, omittedCount: found.length - matches.length };
   }
 }

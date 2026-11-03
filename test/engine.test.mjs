@@ -30,7 +30,7 @@ test('supersession is explicit, same scope, acyclic, and older decisions never r
   const next=approve(engine,proposal(scope,'cta','Free trial',{supersedesId:old}));
   assert.equal(engine.snapshot().memories.find(x=>x.id===old).status,'superseded');
   assert.equal(engine.getContext({projectId:project.id}).conditions[0].value,'Free trial');
-  assert.deepEqual(engine.search(project.id,'Buy'),[]);
+  assert.deepEqual(engine.search(project.id,'Buy').matches,[]);
   assert.throws(()=>engine.propose(proposal({type:'project',projectId:other.id},'cta','Other',{supersedesId:next})),/INVALID_SUPERSESSION/);
   assert.throws(()=>engine.review(old,'approve'),/CANDIDATE_NOT_FOUND/);
   assert.throws(()=>engine.propose(proposal(scope,'cta','Revive',{supersedesId:old})),/INVALID_SUPERSESSION/);
@@ -51,8 +51,8 @@ test('project isolation, no promotion to global, and candidate/rejected exclusio
   approve(engine,proposal({type:'project',projectId:other.id},'client','secret competitor'));
   const ai=engine.propose(proposal({type:'project',projectId:project.id},'tone','inferred',{source:{kind:'ai',reference:'synthetic:ai',excerpt:'I infer a formal tone'}}));
   assert.deepEqual(engine.getContext({projectId:project.id}).conditions,[]);
-  assert.deepEqual(engine.search(project.id,'secret'),[]);
-  engine.review(ai.id,'reject');assert.deepEqual(engine.search(project.id,'inferred'),[]);
+  assert.deepEqual(engine.search(project.id,'secret').matches,[]);
+  engine.review(ai.id,'reject');assert.deepEqual(engine.search(project.id,'inferred').matches,[]);
   assert.throws(()=>engine.propose({...proposal({type:'global'},'goal','Sell more'),kind:'goal'}));
   assert.throws(()=>engine.propose({...proposal({type:'global'},'tone','warm'),status:'active'}));
   assert.throws(()=>engine.getContext({projectId:randomUUID()}),/PROJECT_NOT_FOUND/);
@@ -64,10 +64,20 @@ test('search does not resurrect overridden global values or miss data outside co
   approve(engine,proposal({type:'project',projectId:project.id},'tone','formal'));
   for(let i=0;i<20;i++)approve(engine,proposal({type:'global'},`field_${i}`,'x'.repeat(900)));
   approve(engine,proposal({type:'global'},'z_last','unique-needle'));
-  assert.deepEqual(engine.search(project.id,'friendly'),[]);
-  assert.equal(engine.search(project.id,'unique-needle')[0].value,'unique-needle');
+  assert.deepEqual(engine.search(project.id,'friendly').matches,[]);
+  assert.equal(engine.search(project.id,'unique-needle').matches[0].value,'unique-needle');
   const context=engine.getContext({projectId:project.id,maxCharacters:512});
   assert.ok(context.omittedCount>0);
   assert.ok(context.conditions.some(x=>x.value==='formal'));
   assert.ok(!context.conditions.some(x=>x.value==='friendly'));
+});
+
+test('large matching results respect response budget and report omissions', () => {
+  const {engine,project}=fixture();
+  for(let i=0;i<20;i++)approve(engine,proposal({type:'global'},`match_${i}`,'일'.repeat(3900)));
+  const result=engine.search(project.id,'일',50);
+  assert.ok(result.matches.length>0);
+  assert.ok(result.omittedCount>0);
+  assert.equal(result.matches.length+result.omittedCount,20);
+  assert.ok(Buffer.byteLength(JSON.stringify(result))<256*1024);
 });
