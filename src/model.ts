@@ -38,6 +38,7 @@ export const stateSchema = z.object({
 export const contextSchema = z.object({
   projectId: identifier,
   requestConditions: z.record(z.string().regex(/^[a-z][a-z0-9_.-]{0,79}$/), z.string().min(1).max(4000)).default({}),
+  maxCharacters: z.number().int().min(512).max(32000).default(12000),
 }).strict();
 export type State = z.infer<typeof stateSchema>;
 export type Memory = z.infer<typeof memorySchema>;
