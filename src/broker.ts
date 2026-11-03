@@ -13,9 +13,11 @@ const requestSchema = z.discriminatedUnion('method', [
   z.object({method:z.literal('list_projects'),params:z.object({}).strict()}).strict(),
   z.object({method:z.literal('configure_capture'),params:consentSchema}).strict(),
   z.object({method:z.literal('capture'),params:captureInputSchema}).strict(),
+  z.object({method:z.literal('list_memories'),params:z.object({projectId:identifier,status:z.enum(['candidate','active','all']).default('candidate'),offset:z.number().int().min(0).max(10000).default(0),limit:z.number().int().min(1).max(50).default(20)}).strict()}).strict(),
+  z.object({method:z.literal('review_memory'),params:z.object({projectId:identifier,id:identifier,decision:z.enum(['approve','reject']),supersedesId:identifier.optional()}).strict()}).strict(),
 ]);
 const MAX_REQUEST = 64 * 1024;
-const safeErrors = new Set(['PROJECT_NOT_FOUND','MEMORY_LIMIT','INVALID_SUPERSESSION','VAULT_LOCKED','REQUEST_CONDITION_LIMIT','VAULT_SIZE_LIMIT','CAPTURE_NOT_CONSENTED','CAPTURE_LIMIT','CAPTURE_URL_MISMATCH']);
+const safeErrors = new Set(['PROJECT_NOT_FOUND','MEMORY_LIMIT','INVALID_SUPERSESSION','VAULT_LOCKED','REQUEST_CONDITION_LIMIT','VAULT_SIZE_LIMIT','CAPTURE_NOT_CONSENTED','CAPTURE_LIMIT','CAPTURE_URL_MISMATCH','EXPLICIT_SUPERSESSION_REQUIRED','STALE_SUPERSESSION','CANDIDATE_NOT_FOUND']);
 export const safeError = (e: unknown) => e instanceof Error && safeErrors.has(e.message) ? e.message : 'REQUEST_FAILED';
 
 export async function startBroker(vault: VaultSession, directory: string) {
@@ -42,7 +44,9 @@ export async function startBroker(vault: VaultSession, directory: string) {
         else if(method==='propose_memory')result = await vault.mutate(e => e.propose(params));
         else if(method==='list_projects')result=vault.read(e=>({projects:e.snapshot().projects,settings:e.snapshot().captureSettings}));
         else if(method==='configure_capture')result=await vault.mutate(e=>e.configureCapture(params));
-        else result=await vault.mutate(e=>e.capture(params));
+        else if(method==='capture')result=await vault.mutate(e=>e.capture(params));
+        else if(method==='list_memories')result=vault.read(e=>e.listMemories(params.projectId,params.status,params.offset,params.limit));
+        else result=await vault.mutate(e=>e.reviewScoped(params.projectId,params.id,params.decision,params.supersedesId));
         socket.end(JSON.stringify({ result }) + '\n');
       })().catch(e => socket.end(JSON.stringify({ error: safeError(e) }) + '\n'));
     });

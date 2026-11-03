@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
@@ -11,6 +13,9 @@
     "test:terminal": "npm run build && python test/terminal-smoke.py",
     "test:install": "npm run build && python test/install-smoke.py",
     "test:codex": "npm run build && node test/codex-session.mjs",
+    "test:browser": "npm run build && node test/browser-session.mjs",
+    "test:ui": "node test/ui-fixtures.mjs",
+    "test:native-install": "npm run build && python test/native-install.py",
     "mcp": "node dist/mcp.js",
     "vault": "node dist/cli.js"
   },
@@ -20,6 +25,7 @@
   },
   "devDependencies": {
     "@types/node": "24.19.2",
+    "playwright": "1.64.1",
     "typescript": "7.0.2"
   }
 }

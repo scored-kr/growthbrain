@@ -41,6 +41,15 @@ test('v1 state migrates explicitly and invalid capture revisions are rejected',(
   const state=engine.snapshot();state.captures[0].previousId=state.captures[0].id;
   assert.throws(()=>new MemoryEngine(state),/INVALID_CAPTURE_REVISION/);
 });
+test('local review cannot resolve another project capture source or approve another project candidate',()=>{
+  const {engine,project,other}=fixture();
+  engine.configureCapture({site:'chatgpt.com',projectId:other.id,enabled:true});
+  const captured=engine.capture(input(other.id));
+  const foreign=engine.snapshot().memories[0];
+  const own=engine.propose({scope:{type:'project',projectId:project.id},kind:'feedback',key:'source_test',value:'Synthetic',source:{kind:'ai',reference:`capture:${captured.id}`,excerpt:'AI-supplied reference'},reason:'Synthetic scope check'});
+  assert.equal(engine.listMemories(project.id,'candidate').memories.find(m=>m.id===own.id).captureSource,undefined);
+  assert.throws(()=>engine.reviewScoped(project.id,foreign.id,'approve'),/CANDIDATE_NOT_FOUND/);
+});
 test('captured raw text, URL, preferences and settings persist only inside ciphertext',async()=>{
   const directory=await mkdtemp(join(tmpdir(),'gb-capture-'));const owner=randomUUID(),password=randomBytes(24).toString('base64url');
   let vault=await VaultSession.open(directory,owner,password,true);

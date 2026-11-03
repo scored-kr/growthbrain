@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Growth Brain — Local Memory Capture",
+  "version": "0.1.0",
+  "description": "Collect consented project conversations into your local encrypted vault for review.",
+  "permissions": ["storage", "scripting", "nativeMessaging"],
+  "optional_host_permissions": ["https://chatgpt.com/*", "https://claude.ai/*"],
+  "background": {"service_worker": "background.js", "type": "module"},
+  "action": {"default_popup": "popup.html", "default_title": "Growth Brain"},
+  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'none'"}
+}

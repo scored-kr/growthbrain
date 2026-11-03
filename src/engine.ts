@@ -101,19 +101,43 @@ export class MemoryEngine {
     this.state.memories.push(memory);
     return { id: memory.id, status: memory.status, reviewRequired: true };
   }
-  review(id: string, decision: 'approve' | 'reject') {
+  review(id: string, decision: 'approve' | 'reject', replacementId?: string) {
     const memory = this.state.memories.find(m => m.id === id);
     if (!memory || memory.status !== 'candidate') throw new Error('CANDIDATE_NOT_FOUND');
     if (decision !== 'approve' && decision !== 'reject') throw new Error('INVALID_REVIEW');
+    if(replacementId) {
+      const replacement=this.state.memories.find(m=>m.id===replacementId);
+      if(decision!=='approve' || !replacement || replacement.status!=='active' || replacement.key!==memory.key || !sameScope(replacement.scope,memory.scope))throw new Error('INVALID_SUPERSESSION');
+    }
     if (decision === 'approve') {
       const current = this.state.memories.find(m => m.status === 'active' && m.key === memory.key && sameScope(m.scope, memory.scope));
-      if (current && memory.supersedesId !== current.id) throw new Error('EXPLICIT_SUPERSESSION_REQUIRED');
-      if (memory.supersedesId && current?.id !== memory.supersedesId) throw new Error('STALE_SUPERSESSION');
+      const supersedesId=replacementId??memory.supersedesId;
+      if (current && supersedesId !== current.id) throw new Error('EXPLICIT_SUPERSESSION_REQUIRED');
+      if (supersedesId && current?.id !== supersedesId) throw new Error('STALE_SUPERSESSION');
+      if(replacementId)memory.supersedesId=replacementId;
       if (current) current.status = 'superseded';
     }
     memory.status = decision === 'approve' ? 'active' : 'rejected';
     memory.reviewedAt = new Date().toISOString();
     return { id: memory.id, status: memory.status };
+  }
+  listMemories(projectId:string,status:'candidate'|'active'|'all',offset=0,limit=20) {
+    this.requireProject(projectId);
+    const found=this.state.memories.filter(m=>(m.scope.type==='global'||m.scope.projectId===projectId)&&(status==='all'||m.status===status));
+    let used=0;const memories=[];
+    for(const m of found.slice(offset,offset+limit)) {
+      const capture=m.source.reference.startsWith('capture:')&&m.scope.type==='project'?this.state.captures.find(c=>`capture:${c.id}`===m.source.reference&&c.projectId===projectId):undefined;
+      const conflict=m.status==='candidate'?this.state.memories.find(old=>old.status==='active'&&old.key===m.key&&sameScope(old.scope,m.scope)):undefined;
+      const result={...structuredClone(m),...(capture?{captureSource:{url:capture.url,role:capture.role,capturedAt:capture.capturedAt}}:{}),...(conflict?{conflict:{id:conflict.id,value:conflict.value}}:{})};
+      const size=JSON.stringify(result).length;if(used+size>32000)break;used+=size;memories.push(result);
+    }
+    return {memories,total:found.length,nextOffset:offset+memories.length<found.length?offset+memories.length:null};
+  }
+  reviewScoped(projectId:string,id:string,decision:'approve'|'reject',replacementId?:string) {
+    this.requireProject(projectId);
+    const m=this.state.memories.find(m=>m.id===id);
+    if(!m || (m.scope.type==='project'&&m.scope.projectId!==projectId))throw new Error('CANDIDATE_NOT_FOUND');
+    return this.review(id,decision,replacementId);
   }
   getContext(input: unknown) {
     const { projectId, requestConditions, maxCharacters } = contextSchema.parse(input);
