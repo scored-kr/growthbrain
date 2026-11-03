@@ -1,0 +1,24 @@
+# Credentials and machine-specific client configuration
+.env
+.env.*
+!.env.example
+.mcp.json
+.codex/
+.claude/settings.local.json
+credentials/
+secrets/
+*.key
+*.pem
+
+# Dependencies, generated output, local vault data and logs
+node_modules/
+dist/
+build/
+coverage/
+*.log
+*.tsbuildinfo
+.DS_Store
+data/
+vaults/
+*.sqlite
+*.sqlite-*
