@@ -11,7 +11,9 @@
 | 2 | 인증된 암호문 백업/새 경로 복원·ID/참조/계보/승인 불변식 | `58fa491` |
 | 3 | 사이트 동의·프로젝트 캡처·중복/revision·후보 분류·v2 마이그레이션 | `687a4da` |
 | 4 | Chrome MV3 수집·popup 검토·native host·보존형 설치/해제. 실제 설치 검증 차단 | `d4acb46` |
-| 5 | native 수집/승인→새 MCP 프로세스 조회 통합 검사, 최종 회귀·보안 범위·백업 정리 | 이 문서를 포함하는 챕터 5 커밋 |
+| 5 | native 수집/승인→새 MCP 프로세스 조회 통합 검사, 최종 회귀·보안 범위·백업 정리 | `264b6bb` |
+
+| 6 | 로컬 복구 파일·v2 키 포장·분실 비밀번호 복원·실제 PTY 검증 | 이 문서를 포함하는 챕터 6 커밋 |
 
 각 구현 챕터는 독립 커밋으로 푸시했다. 최종 원격 SHA/파일 존재는 작업 완료 보고에서 확인한다.
 `git revert`는 소스를 되돌리는 새 커밋을 만든다. 사용자 금고, 원격 DB, 환경 게시를 되돌리지 않는다.
@@ -19,8 +21,9 @@
 
 ## 확인한 검사
 
-- `npm test`: 22개 실행·22개 통과, 실패/스킵 0개. 엔진/암호화/복원/수집/권한 로직과 실제 stdio MCP·native messaging.
+- `npm test`: 26개 실행·26개 통과, 실패/스킵 0개. 엔진/암호화/복원/수집/권한 로직과 실제 stdio MCP·native messaging.
   native로 수집한 후보를 명시 승인·대체한 후 새 MCP 프로세스가 최신 값을 조회하는 경로 포함.
+- `npm run test:recovery`: 실제 합성 PTY에서 복구 파일 발급→암호문 백업→새 비밀번호 복원→재시작, 비밀값 비출력.
 - `npm run test:terminal`: 실제 합성 PTY에서 비표시 입력·동의·승인·로컬 삭제.
 - `npm run test:install`: mock Codex CLI로 기존 설정 보존·idempotence·사용자 수정 보존·해제.
 - `npm run test:native-install`: 정확한 extension origin, 기존 manifest/launcher 수정 보존·해제.
@@ -32,14 +35,14 @@
 
 ## 정확한 외부 차단 사항
 
-1. **Codex 실제 모델 세션:** 기존 시험에서 인증 갱신 HTTP 401. 안전한 CLI 로그인 복구 후
-   `npm run test:codex`를 재실행해야 한다. 당시 get_context 호출 0회, 결과물 없음.
+1. **Codex 실제 모델 세션:** 새 게시 환경에서도 인증 갱신 HTTP 401을 재확인했다. 안전한 CLI 로그인 복구 후
+   `npm run test:codex`를 재실행해야 한다. 재검사 get_context 호출 0회, 결과물 없음.
 2. **현재 Supabase:** 안전한 연결 변수/검증된 연결이 없어 `kcvjsvbwinlhzgmnfsji`의 현재 스키마,
    RLS, 준비 버전 `20261102050000`을 읽지 못했다. 과거 관리 토큰·초기화 SQL은 사용하지 않았다.
 3. **설치된 Chrome 확장:** 관리 정책 `ExtensionInstallBlocklist: ["*"]`가 지정 확장 외 설치를
    차단한다. `test:browser`는 이 정책을 감지하면 명시 실패한다. 정책을 제거/우회하지 않았다.
    관리자 승인된 사용자 기기에서 실제 확장+native host 연결과 권한 확인 UI를 검증해야 한다.
-4. **실사용:** 실제 로그인된 ChatGPT/Claude 페이지, 사용자 기기, 비밀번호 분실 복구,
+4. **실사용:** 실제 로그인된 ChatGPT/Claude 페이지, 사용자 기기의 실제 데이터 복구,
    회원별 원격 전체 삭제·용량 정책·동기화, Claude Code와 실제 콘텐츠 마케터 A/B 실험은 미검증이다.
 
 ## 다음 실행 순서

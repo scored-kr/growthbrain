@@ -9,6 +9,7 @@ credentials/
 secrets/
 *.key
 *.pem
+*.recovery
 
 # Dependencies, generated output, local vault data and logs
 node_modules/

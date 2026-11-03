@@ -17,7 +17,8 @@
     "test:ui": "node test/ui-fixtures.mjs",
     "test:native-install": "npm run build && python test/native-install.py",
     "mcp": "node dist/mcp.js",
-    "vault": "node dist/cli.js"
+    "vault": "node dist/cli.js",
+    "test:recovery": "npm run build && python test/recovery-terminal.py"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",

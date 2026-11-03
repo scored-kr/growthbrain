@@ -13,8 +13,9 @@ if (!process.stdin.isTTY || !process.stdout.isTTY) {
   process.exit(1);
 }
 const [command, pathArg, ...extra] = process.argv.slice(2);
-if (!['init', 'serve','restore'].includes(command ?? '') || (command==='restore' ? !pathArg || extra.length!==1 : extra.length!==0)) {
-  console.error('Usage: npm run vault -- init|serve [private-directory], or restore <new-directory> <encrypted-backup>'); process.exit(1);
+const restoring = command === 'restore' || command === 'recover';
+if (!['init', 'serve', 'restore', 'recovery', 'recover'].includes(command ?? '') || (restoring ? !pathArg || extra.length!==1 : extra.length!==0)) {
+  console.error('Usage: npm run vault -- init|serve|recovery [private-directory], or restore|recover <new-directory> <encrypted-backup>'); process.exit(1);
 }
 const directory = resolve(pathArg ?? join(homedir(), '.local', 'share', 'growth-brain'));
 async function hidden(question: string): Promise<string> {
@@ -40,10 +41,29 @@ let broker: Awaited<ReturnType<typeof startBroker>> | undefined;
 let input: ReturnType<typeof createInterface> | undefined;
 async function close() { input?.close(); await broker?.close(); await vault?.close(); }
 try {
-  const ownerId = command === 'init' ? randomUUID() : JSON.parse(await readFile(command==='restore'?resolve(extra[0]!):join(directory, 'vault.json'), 'utf8')).ownerId;
-  let password = await hidden('Local vault passphrase (at least 12 characters; never send this to an AI): ');
-  if (command === 'init' && password !== await hidden('Confirm passphrase: ')) throw new Error('PASSPHRASES_DIFFER');
-  vault = command==='restore'?await VaultSession.restore(extra[0]!,directory,ownerId,password):await VaultSession.open(directory, ownerId, password, command === 'init'); password = '';
+  const ownerId = command === 'init' ? randomUUID() : JSON.parse(await readFile(restoring?resolve(extra[0]!):join(directory, 'vault.json'), 'utf8')).ownerId;
+  let recoveryFile = '';
+  if (command === 'recover') {
+    input = createInterface({ input: process.stdin, output: process.stdout });
+    recoveryFile = await input.question('Private recovery file path (file contents stay on this device): ');
+    input.close(); input = undefined;
+  }
+  let password = await hidden(`${command === 'recover' ? 'New local' : 'Local'} vault passphrase (at least 12 characters; never send this to an AI): `);
+  if ((command === 'init' || command === 'recover') && password !== await hidden('Confirm passphrase: ')) throw new Error('PASSPHRASES_DIFFER');
+  vault = command === 'recover' ? await VaultSession.recover(extra[0]!, directory, ownerId, recoveryFile, password) :
+    command === 'restore' ? await VaultSession.restore(extra[0]!,directory,ownerId,password) : await VaultSession.open(directory, ownerId, password, command === 'init');
+  if (command === 'recovery') {
+    input = createInterface({ input: process.stdin, output: process.stdout });
+    console.log('The recovery file unlocks matching encrypted backups. Keep it offline, separate from backups and repositories. Issuing again replaces recovery for future backups; old backups retain their old key.');
+    if (await input.question('Type ISSUE to create or replace recovery access; Enter cancels: ') === 'ISSUE') {
+      const destination = await input.question('New recovery file path in a separate private directory: ');
+      console.log(await vault.issueRecovery(password, destination));
+      console.log('Recovery file saved without displaying its contents. Export a NEW encrypted backup now; earlier backups are unchanged.');
+    }
+    password = ''; await close(); process.exit(0);
+  }
+  password = '';
+  if (command === 'recover') console.log('Recovered into a new vault with a new data key. Recovery access is disabled here until you issue a new recovery file. The original backup remains unchanged.');
   input = createInterface({ input: process.stdin, output: process.stdout });
   console.log('Selected memories will be readable by the connected AI service. Other local programs running as your OS user can access this unlocked socket. Closing this terminal locks the vault.');
   const consent = await input.question('Type CONNECT to enable the local MCP connection, or press Enter to close: ');
