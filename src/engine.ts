@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { captureInputSchema, consentSchema, contextSchema, identifier, parseState, proposalSchema, searchSchema, stateSchema, type Capture, type Memory, type Scope, type State } from './model.js';
+import { agentBindingInputSchema, agentCaptureInputSchema, captureInputSchema, consentSchema, contextSchema, identifier, parseState, proposalSchema, searchSchema, stateSchema, type Capture, type Memory, type Scope, type State } from './model.js';
 import { classifyCapture } from './classifier.js';
 
 const sameScope = (a: Scope, b: Scope) => a.type === b.type && (a.type === 'global' || (b.type === 'project' && a.projectId === b.projectId));
 const hashText=(text:string)=>createHash('sha256').update(text).digest('hex');
 const captureIdentity=(c:{site:string;projectId:string;url:string;messageId:string;role:string})=>JSON.stringify([c.site,c.projectId,c.url,c.messageId,c.role]);
+const agentIdentity=(c:State['agentCaptures'][number])=>JSON.stringify([c.client,c.workspace,c.projectId,c.sessionId,c.turnId,c.role]);
 export function canonicalUrl(input:string,site:string) {
   const url=new URL(input);
   if(url.protocol!=='https:' || url.hostname!==site || url.port || url.username || url.password)throw new Error('CAPTURE_URL_MISMATCH');
@@ -22,6 +23,28 @@ export class MemoryEngine {
     if(new Set(this.state.captures.map(c=>c.id)).size!==this.state.captures.length)throw new Error('DUPLICATE_CAPTURE_ID');
     if(new Set(this.state.captureSettings.map(c=>c.site)).size!==this.state.captureSettings.length)throw new Error('DUPLICATE_SITE_CONSENT');
     for(const consent of this.state.captureSettings)if(!projects.has(consent.projectId))throw new Error('INVALID_PROJECT_REFERENCE');
+    const bindings=new Set<string>(), bindingIds=new Set<string>();
+    for(const binding of this.state.agentBindings) {
+      const key=JSON.stringify([binding.client,binding.workspace]);
+      if(bindings.has(key)||bindingIds.has(binding.id))throw new Error('DUPLICATE_AGENT_BINDING');
+      if(!projects.has(binding.projectId))throw new Error('INVALID_PROJECT_REFERENCE');
+      bindings.add(key);bindingIds.add(binding.id);
+    }
+    if(new Set(this.state.projectTriggers.map(r=>r.projectId)).size!==this.state.projectTriggers.length)throw new Error('DUPLICATE_PROJECT_TRIGGER');
+    for(const route of this.state.projectTriggers)if(!projects.has(route.projectId))throw new Error('INVALID_PROJECT_REFERENCE');
+    if(this.state.captures.length+this.state.agentCaptures.length>5000)throw new Error('CAPTURE_LIMIT');
+    const agentCaptures=new Map<string,State['agentCaptures'][number]>(), sessions=new Map<string,string>(),userTurns=new Set<string>();
+    for(const capture of this.state.agentCaptures) {
+      if(agentCaptures.has(capture.id))throw new Error('DUPLICATE_CAPTURE_ID');
+      if(!projects.has(capture.projectId)||hashText(capture.text)!==capture.contentHash)throw new Error('INVALID_AGENT_CAPTURE');
+      const session=JSON.stringify([capture.client,capture.sessionId]),scope=JSON.stringify([capture.workspace,capture.projectId]);
+      if(sessions.has(session)&&sessions.get(session)!==scope)throw new Error('AGENT_SESSION_SCOPE_MISMATCH');
+      sessions.set(session,scope);
+      if(capture.previousId){const prior=agentCaptures.get(capture.previousId);if(!prior||agentIdentity(prior)!==agentIdentity(capture))throw new Error('INVALID_CAPTURE_REVISION');}
+      const turn=JSON.stringify([capture.client,capture.sessionId,capture.turnId,capture.bindingId]);
+      if(capture.role==='user')userTurns.add(turn);else if(!userTurns.has(turn))throw new Error('AGENT_TURN_NOT_CAPTURED');
+      agentCaptures.set(capture.id,capture);
+    }
     const previousCaptures=new Map<string,Capture>();
     for(const capture of this.state.captures) {
       if(!projects.has(capture.projectId))throw new Error('INVALID_PROJECT_REFERENCE');
@@ -65,6 +88,35 @@ export class MemoryEngine {
   }
   snapshot(): State { return structuredClone(this.state); }
   static empty(ownerId: string) { return new MemoryEngine({ version: 1, ownerId, projects: [], memories: [] }); }
+  configureAgentCapture(input:unknown) {
+    const binding=agentBindingInputSchema.parse(input);this.requireProject(binding.projectId);
+    const index=this.state.agentBindings.findIndex(b=>b.client===binding.client&&b.workspace===binding.workspace);
+    if(index<0&&this.state.agentBindings.length>=1000)throw new Error('AGENT_BINDING_LIMIT');
+    const next={...binding,id:randomUUID(),consentedAt:new Date().toISOString()};
+    if(index<0)this.state.agentBindings.push(next);else this.state.agentBindings[index]=next;
+    return structuredClone(next);
+  }
+  getAgentBinding(client:'codex'|'claude-code',workspace:string) {
+    const binding=this.state.agentBindings.find(b=>b.client===client&&b.workspace===workspace&&b.enabled);
+    if(!binding)throw new Error('AGENT_CAPTURE_NOT_CONSENTED');
+    return structuredClone(binding);
+  }
+  captureAgent(input:unknown) {
+    const parsed=agentCaptureInputSchema.parse(input),binding=this.getAgentBinding(parsed.client,parsed.workspace);
+    if(binding.id!==parsed.bindingId)throw new Error('STALE_AGENT_CONSENT');
+    const session=this.state.agentCaptures.filter(c=>c.client===parsed.client&&c.sessionId===parsed.sessionId);
+    if(session.some(c=>c.workspace!==parsed.workspace||c.projectId!==binding.projectId))throw new Error('AGENT_SESSION_SCOPE_MISMATCH');
+    if(parsed.role==='assistant'&&!session.some(c=>c.turnId===parsed.turnId&&c.bindingId===binding.id&&c.role==='user'))throw new Error('AGENT_TURN_NOT_CAPTURED');
+    const contentHash=hashText(parsed.text);
+    const previous=session.findLast(c=>c.turnId===parsed.turnId&&c.role===parsed.role);
+    if(previous?.contentHash===contentHash)return {id:previous.id,duplicate:true,candidateIds:[]};
+    if(this.state.captures.length+this.state.agentCaptures.length>=5000)throw new Error('CAPTURE_LIMIT');
+    const capture={...parsed,projectId:binding.projectId,id:randomUUID(),contentHash,capturedAt:new Date().toISOString(),...(previous?{previousId:previous.id}:{})};
+    const proposals=classifyCapture(capture,'agent_capture');
+    if(this.state.memories.length+proposals.length>10000)throw new Error('MEMORY_LIMIT');
+    const candidateIds=proposals.map(p=>this.propose(p).id);
+    this.state.agentCaptures.push(capture);return {id:capture.id,duplicate:false,candidateIds};
+  }
   configureCapture(input: unknown) {
     const consent=consentSchema.parse(input);this.requireProject(consent.projectId);
     this.state.captureSettings=this.state.captureSettings.filter(c=>c.site!==consent.site);
@@ -78,7 +130,7 @@ export class MemoryEngine {
     const normalized={...parsed,url};
     const previous=this.state.captures.findLast(c=>captureIdentity(c)===captureIdentity(normalized));
     if(previous?.contentHash===contentHash)return {id:previous.id,duplicate:true,candidateIds:[]};
-    if(this.state.captures.length>=5000)throw new Error('CAPTURE_LIMIT');
+    if(this.state.captures.length+this.state.agentCaptures.length>=5000)throw new Error('CAPTURE_LIMIT');
     const capture:Capture={...normalized,id:randomUUID(),contentHash,capturedAt:new Date().toISOString(),...(previous?{previousId:previous.id}:{})};
     const proposals=classifyCapture(capture);
     if(this.state.memories.length+proposals.length>10000)throw new Error('MEMORY_LIMIT');
@@ -134,7 +186,8 @@ export class MemoryEngine {
     for(const m of found.slice(offset,offset+limit)) {
       const capture=m.source.reference.startsWith('capture:')&&m.scope.type==='project'?this.state.captures.find(c=>`capture:${c.id}`===m.source.reference&&c.projectId===projectId):undefined;
       const conflict=m.status==='candidate'?this.state.memories.find(old=>old.status==='active'&&old.key===m.key&&sameScope(old.scope,m.scope)):undefined;
-      const result={...structuredClone(m),...(capture?{captureSource:{url:capture.url,role:capture.role,capturedAt:capture.capturedAt}}:{}),...(conflict?{conflict:{id:conflict.id,value:conflict.value}}:{})};
+      const agentCapture=m.scope.type==='project'?this.state.agentCaptures.find(c=>`agent_capture:${c.id}`===m.source.reference&&c.projectId===projectId):undefined;
+      const result={...structuredClone(m),...(capture?{captureSource:{url:capture.url,role:capture.role,capturedAt:capture.capturedAt}}:{}),...(agentCapture?{agentSource:{client:agentCapture.client,sessionId:agentCapture.sessionId,turnId:agentCapture.turnId,role:agentCapture.role,capturedAt:agentCapture.capturedAt}}:{}),...(conflict?{conflict:{id:conflict.id,value:conflict.value}}:{})};
       const size=JSON.stringify(result).length;if(used+size>32000)break;used+=size;memories.push(result);
     }
     return {memories,total:found.length,nextOffset:offset+memories.length<found.length?offset+memories.length:null};

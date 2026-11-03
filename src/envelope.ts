@@ -64,10 +64,10 @@ function openPayload(data: Envelope, ownerId: string, key: Buffer) {
   if (key.length !== 32) { key.fill(0); throw new Error('INVALID_ENVELOPE'); }
   try {
     const plaintext = decryptBox(data, key, aad(headerOf(data)));
-    let engine: MemoryEngine;
-    try { engine = new MemoryEngine(JSON.parse(plaintext.toString('utf8'))); } finally { plaintext.fill(0); }
+    let engine: MemoryEngine, sourceStateVersion:number;
+    try { const state=JSON.parse(plaintext.toString('utf8'));engine = new MemoryEngine(state);sourceStateVersion=state.version; } finally { plaintext.fill(0); }
     if (engine.snapshot().ownerId !== ownerId) throw new Error('OWNER_MISMATCH');
-    return { engine, key, header: headerOf(data) };
+    return { engine, key, header: headerOf(data),sourceStateVersion };
   } catch (error) { key.fill(0); throw error; }
 }
 export async function decrypt(data: Envelope, ownerId: string, password: string) {

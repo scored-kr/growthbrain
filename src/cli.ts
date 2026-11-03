@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
 import { VaultSession } from './vault.js';
 import { startBroker } from './broker.js';
@@ -69,7 +69,7 @@ try {
   const consent = await input.question('Type CONNECT to enable the local MCP connection, or press Enter to close: ');
   if (consent !== 'CONNECT') { await close(); process.exit(0); }
   broker = await startBroker(vault, directory);
-  console.log('Connected locally. Commands: projects, project, memories, propose, candidates, review, correct, retire, backup, delete-all, lock');
+  console.log('Connected locally. Commands: projects, project, memories, propose, candidates, review, correct, retire, agent-bind, agent-stop, agent-status, backup, delete-all, lock');
   const end = () => { void close().finally(() => process.exit(0)); };
   process.once('SIGTERM', end); process.once('SIGINT', end);
   while (true) {
@@ -111,6 +111,14 @@ try {
           const reason = await input.question('Retirement reason: ');
           if (await input.question('History remains; common defaults may apply. Type RETIRE to stop using this memory: ') === 'RETIRE') console.log(await vault.mutate(e=>e.retireMemory(projectId,id,reason)));
         }
+      } else if (action === 'agent-status') {
+        console.log(JSON.stringify(vault.read(e=>e.snapshot().agentBindings),null,2));
+      } else if (action === 'agent-bind' || action === 'agent-stop') {
+        const client=await input.question('Client (codex or claude-code): ');
+        const workspace=await realpath(resolve(await input.question('Exact workspace directory: ')));
+        const projectId=await input.question('Selected project UUID: ');
+        console.log('Capture covers user prompts and final assistant text in this exact directory. Raw text stays encrypted locally; extracted memories require review. Changing project requires a new AI session. No history-file scan or plaintext retry queue.');
+        if(await input.question(action==='agent-bind'?'Type CAPTURE to enable, or Enter to cancel: ':'Type STOP to pause, or Enter to cancel: ')===(action==='agent-bind'?'CAPTURE':'STOP'))console.log(await vault.mutate(e=>e.configureAgentCapture({client,workspace,projectId,enabled:action==='agent-bind'})));
       } else if (action === 'backup') {
         const path=await input.question('New encrypted backup path in a private directory: ');
         console.log(await vault.exportBackup(path));
@@ -118,7 +126,7 @@ try {
         if (await input.question('Deletes this device’s vault only; external backups and AI-held context remain. Type DELETE to confirm: ') === 'DELETE') {
           await broker?.close(); broker = undefined; await vault.deleteAll(); break;
         }
-      } else console.log('Commands: projects, project, memories, propose, candidates, review, correct, retire, backup, delete-all, lock');
+      } else console.log('Commands: projects, project, memories, propose, candidates, review, correct, retire, agent-bind, agent-stop, agent-status, backup, delete-all, lock');
     } catch { console.log('Action failed. Check the project/candidate ID, explicit replacement, and field limits. No approval was assumed.'); }
   }
   await close();

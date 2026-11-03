@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { open, readFile, rename, unlink, mkdir, lstat, rmdir, realpath } from 'node:fs/promises';
 import { dirname, join, resolve, relative, isAbsolute, basename } from 'node:path';
 import { MemoryEngine } from './engine.js';
-import { identifier } from './model.js';
+import { identifier, STATE_VERSION } from './model.js';
 import { envelopeSchema, recoverySchema, derive, decrypt, decryptRecovery, seal, newHeader, type Envelope, type Header } from './envelope.js';
 
 const MAX_BYTES = 16 * 1024 * 1024;
@@ -80,7 +80,10 @@ export class VaultSession {
         engine = MemoryEngine.empty(ownerId);
         await persist(file, seal(engine, key, header), true);
       } else {
-        ({engine,key,header}=await decrypt(await readEnvelope(file),ownerId,password));
+        const data=await readEnvelope(file),opened=await decrypt(data,ownerId,password);
+        ({engine,key,header}=opened);
+        // Preserve the authenticated previous format before any later save can upgrade it.
+        if(opened.sourceStateVersion<STATE_VERSION)await persist(join(directory,`pre-state-v${STATE_VERSION}-${randomBytes(12).toString('hex')}.enc`),data,true);
       }
       return new VaultSession(file, header, engine, key, lockFile);
     } catch (e) { key?.fill(0); await unlink(lockFile); throw e; }

@@ -2,7 +2,7 @@ import { createServer, createConnection, type Server } from 'node:net';
 import { chmod, lstat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { captureInputSchema, consentSchema, contextSchema, identifier, proposalSchema, searchSchema } from './model.js';
+import { agentCaptureInputSchema, agentClientSchema, workspaceSchema, captureInputSchema, consentSchema, contextSchema, identifier, proposalSchema, searchSchema } from './model.js';
 import { privateDirectory, type VaultSession } from './vault.js';
 
 const requestSchema = z.discriminatedUnion('method', [
@@ -10,6 +10,8 @@ const requestSchema = z.discriminatedUnion('method', [
   z.object({ method: z.literal('search_memory'), params: searchSchema }).strict(),
   z.object({ method: z.literal('propose_memory'), params: proposalSchema }).strict(),
   // Local native-messaging/UI operations; these are never registered as MCP tools.
+  z.object({method:z.literal('get_agent_binding'),params:z.object({client:agentClientSchema,workspace:workspaceSchema}).strict()}).strict(),
+  z.object({method:z.literal('capture_agent'),params:agentCaptureInputSchema}).strict(),
   z.object({method:z.literal('list_projects'),params:z.object({}).strict()}).strict(),
   z.object({method:z.literal('configure_capture'),params:consentSchema}).strict(),
   z.object({method:z.literal('capture'),params:captureInputSchema}).strict(),
@@ -19,7 +21,7 @@ const requestSchema = z.discriminatedUnion('method', [
   z.object({method:z.literal('retire_memory'),params:z.object({projectId:identifier,id:identifier,reason:proposalSchema.shape.reason}).strict()}).strict(),
 ]);
 const MAX_REQUEST = 64 * 1024;
-const safeErrors = new Set(['PROJECT_NOT_FOUND','MEMORY_LIMIT','INVALID_SUPERSESSION','VAULT_LOCKED','REQUEST_CONDITION_LIMIT','VAULT_SIZE_LIMIT','CAPTURE_NOT_CONSENTED','CAPTURE_LIMIT','CAPTURE_URL_MISMATCH','EXPLICIT_SUPERSESSION_REQUIRED','STALE_SUPERSESSION','CANDIDATE_NOT_FOUND','ACTIVE_MEMORY_NOT_FOUND']);
+const safeErrors = new Set(['PROJECT_NOT_FOUND','MEMORY_LIMIT','INVALID_SUPERSESSION','VAULT_LOCKED','REQUEST_CONDITION_LIMIT','VAULT_SIZE_LIMIT','CAPTURE_NOT_CONSENTED','CAPTURE_LIMIT','CAPTURE_URL_MISMATCH','EXPLICIT_SUPERSESSION_REQUIRED','STALE_SUPERSESSION','CANDIDATE_NOT_FOUND','ACTIVE_MEMORY_NOT_FOUND','AGENT_CAPTURE_NOT_CONSENTED','STALE_AGENT_CONSENT','AGENT_SESSION_SCOPE_MISMATCH','AGENT_TURN_NOT_CAPTURED']);
 export const safeError = (e: unknown) => e instanceof Error && safeErrors.has(e.message) ? e.message : 'REQUEST_FAILED';
 
 export async function startBroker(vault: VaultSession, directory: string) {
@@ -47,6 +49,8 @@ export async function startBroker(vault: VaultSession, directory: string) {
         else if(method==='list_projects')result=vault.read(e=>({projects:e.snapshot().projects,settings:e.snapshot().captureSettings}));
         else if(method==='configure_capture')result=await vault.mutate(e=>e.configureCapture(params));
         else if(method==='capture')result=await vault.mutate(e=>e.capture(params));
+        else if(method==='get_agent_binding')result=vault.read(e=>e.getAgentBinding(params.client,params.workspace));
+        else if(method==='capture_agent')result=await vault.mutate(e=>e.captureAgent(params));
         else if(method==='list_memories')result=vault.read(e=>e.listMemories(params.projectId,params.status,params.offset,params.limit));
         else if(method==='review_memory')result=await vault.mutate(e=>e.reviewScoped(params.projectId,params.id,params.decision,params.supersedesId));
         else if(method==='correct_candidate')result=await vault.mutate(e=>e.correctCandidate(params.projectId,params.id,params.value,params.reason));

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isAbsolute, normalize, parse } from 'node:path';
 
 export const identifier = z.string().uuid();
 export const siteSchema=z.enum(['chatgpt.com','claude.ai']);
@@ -10,6 +11,14 @@ export const captureSchema=captureInputSchema.extend({
   id:identifier, contentHash:z.string().regex(/^[0-9a-f]{64}$/), capturedAt:z.string().datetime(), previousId:identifier.optional(),
 }).strict();
 export const consentSchema=z.object({site:siteSchema,projectId:identifier,enabled:z.boolean()}).strict();
+export const agentClientSchema=z.enum(['codex','claude-code']);
+export const workspaceSchema=z.string().min(1).max(4096).refine(p=>isAbsolute(p)&&normalize(p)===p&&p!==parse(p).root,'Select an absolute project directory');
+const eventId=z.string().regex(/^[a-zA-Z0-9_.:-]{1,160}$/);
+export const agentBindingInputSchema=z.object({client:agentClientSchema,workspace:workspaceSchema,projectId:identifier,enabled:z.boolean()}).strict();
+export const agentBindingSchema=agentBindingInputSchema.extend({id:identifier,consentedAt:z.string().datetime()}).strict();
+export const agentCaptureInputSchema=z.object({client:agentClientSchema,workspace:workspaceSchema,bindingId:identifier,sessionId:eventId,turnId:eventId,role:z.enum(['user','assistant']),text:z.string().trim().min(1).max(12000)}).strict();
+export const agentCaptureSchema=agentCaptureInputSchema.extend({id:identifier,projectId:identifier,contentHash:z.string().regex(/^[0-9a-f]{64}$/),capturedAt:z.string().datetime(),previousId:identifier.optional()}).strict();
+export const projectTriggerSchema=z.object({projectId:identifier,keywords:z.array(z.string().trim().min(2).max(80)).min(1).max(20)}).strict();
 export const scopeSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('global') }).strict(),
   z.object({ type: z.literal('project'), projectId: identifier }).strict(),
@@ -54,13 +63,19 @@ const legacyStateSchema = z.object({
 const captureStateSchema=legacyStateSchema.extend({
   version:z.literal(2), captures:z.array(captureSchema).max(5000), captureSettings:z.array(consentSchema).max(2),
 }).strict();
-export const stateSchema=captureStateSchema.extend({version:z.literal(3),memories:z.array(memorySchema).max(10000)}).strict();
+const reviewStateSchema=captureStateSchema.extend({version:z.literal(3),memories:z.array(memorySchema).max(10000)}).strict();
+export const STATE_VERSION=4;
+export const stateSchema=reviewStateSchema.extend({version:z.literal(STATE_VERSION),agentBindings:z.array(agentBindingSchema).max(1000),agentCaptures:z.array(agentCaptureSchema).max(5000),projectTriggers:z.array(projectTriggerSchema).max(1000)}).strict();
 export function parseState(state: unknown) {
+  const additions={agentBindings:[],agentCaptures:[],projectTriggers:[]};
   if(typeof state==='object' && state!==null && 'version' in state && state.version===1) {
-    return stateSchema.parse({...legacyStateSchema.parse(state),version:3,captures:[],captureSettings:[]});
+    return stateSchema.parse({...legacyStateSchema.parse(state),version:STATE_VERSION,captures:[],captureSettings:[],...additions});
   }
   if(typeof state==='object' && state!==null && 'version' in state && state.version===2) {
-    return stateSchema.parse({...captureStateSchema.parse(state),version:3});
+    return stateSchema.parse({...captureStateSchema.parse(state),version:STATE_VERSION,...additions});
+  }
+  if(typeof state==='object' && state!==null && 'version' in state && state.version===3) {
+    return stateSchema.parse({...reviewStateSchema.parse(state),version:STATE_VERSION,...additions});
   }
   return stateSchema.parse(state);
 }

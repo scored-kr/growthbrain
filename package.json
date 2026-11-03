@@ -12,6 +12,8 @@
     "test": "npm run build && node --test test/*.test.mjs",
     "test:terminal": "npm run build && python test/terminal-smoke.py",
     "test:install": "npm run build && python test/install-smoke.py",
+    "test:agent-install": "npm run build && python test/agent-install.py",
+    "test:hooks:codex": "npm run build && node test/agent-codex-session.mjs",
     "test:codex": "npm run build && node test/codex-session.mjs",
     "test:browser": "npm run build && node test/browser-session.mjs",
     "test:ui": "node test/ui-fixtures.mjs",

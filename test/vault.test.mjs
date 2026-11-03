@@ -1,11 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID, randomBytes } from 'node:crypto';
-import { mkdtemp, readFile, writeFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm, stat, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { VaultSession } from '../dist/vault.js';
 import { proposal, approve } from './helpers.mjs';
+import { MemoryEngine } from '../dist/engine.js';
+import { derive,seal,decrypt } from '../dist/envelope.js';
+
+test('opening a v3 state preserves an authenticated encrypted backup before the first v4 write',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'gb-migration-')),owner=randomUUID(),password=randomBytes(24).toString('base64url');
+  let vault;
+  try {
+    const {agentBindings,agentCaptures,projectTriggers,...old}=MemoryEngine.empty(owner).snapshot();old.version=3;
+    const salt=randomBytes(16),key=await derive(password,salt);
+    const envelope=seal({snapshot:()=>old},key,{version:1,ownerId:owner,salt:salt.toString('base64')});key.fill(0);
+    const original=JSON.stringify(envelope);await writeFile(join(root,'vault.json'),original,{mode:0o600});
+    vault=await VaultSession.open(root,owner,password);
+    const backups=(await readdir(root)).filter(x=>x.startsWith('pre-state-v4-'));
+    assert.equal(backups.length,1);const backupBytes=await readFile(join(root,backups[0]),'utf8');assert.deepEqual(JSON.parse(backupBytes),envelope);
+    await vault.mutate(e=>e.addProject('after migration'));
+    assert.equal(await readFile(join(root,backups[0]),'utf8'),backupBytes);
+    const previous=await decrypt(JSON.parse(backupBytes),owner,password);assert.equal(previous.sourceStateVersion,3);previous.key.fill(0);
+    const opened=await decrypt(JSON.parse(await readFile(join(root,'vault.json'),'utf8')),owner,password);
+    assert.equal(opened.sourceStateVersion,4);opened.key.fill(0);
+  } finally {await vault?.close();await rm(root,{recursive:true,force:true});}
+});
 
 async function setup(t) {
   const directory=await mkdtemp(join(tmpdir(),'gb-vault-'));
