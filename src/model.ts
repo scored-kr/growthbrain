@@ -32,24 +32,35 @@ export const proposalSchema = z.object({
     ctx.addIssue({ code: 'custom', message: 'Global scope is reserved for explicitly selected preferences' });
   }
 });
-export const memorySchema = proposalSchema.safeExtend({
+const legacyMemorySchema = proposalSchema.safeExtend({
   id: identifier,
   status: z.enum(['candidate', 'active', 'rejected', 'superseded']),
   createdAt: z.string().datetime(),
   reviewedAt: z.string().datetime().optional(),
 });
+export const memorySchema = proposalSchema.safeExtend({
+  ...legacyMemorySchema.shape,
+  status: z.enum(['candidate', 'active', 'rejected', 'superseded', 'retired']),
+  correctionOf: identifier.optional(),
+  retiredAt: z.string().datetime().optional(),
+  retirementReason: z.string().trim().min(1).max(2000).optional(),
+});
 const legacyStateSchema = z.object({
   version: z.literal(1),
   ownerId: identifier,
   projects: z.array(z.object({ id: identifier, name: z.string().trim().min(1).max(200) }).strict()).max(1000),
-  memories: z.array(memorySchema).max(10000),
+  memories: z.array(legacyMemorySchema).max(10000),
 }).strict();
-export const stateSchema=legacyStateSchema.extend({
+const captureStateSchema=legacyStateSchema.extend({
   version:z.literal(2), captures:z.array(captureSchema).max(5000), captureSettings:z.array(consentSchema).max(2),
 }).strict();
+export const stateSchema=captureStateSchema.extend({version:z.literal(3),memories:z.array(memorySchema).max(10000)}).strict();
 export function parseState(state: unknown) {
   if(typeof state==='object' && state!==null && 'version' in state && state.version===1) {
-    return stateSchema.parse({...legacyStateSchema.parse(state),version:2,captures:[],captureSettings:[]});
+    return stateSchema.parse({...legacyStateSchema.parse(state),version:3,captures:[],captureSettings:[]});
+  }
+  if(typeof state==='object' && state!==null && 'version' in state && state.version===2) {
+    return stateSchema.parse({...captureStateSchema.parse(state),version:3});
   }
   return stateSchema.parse(state);
 }

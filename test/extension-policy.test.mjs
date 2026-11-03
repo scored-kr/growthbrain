@@ -16,7 +16,7 @@ async function harness(native=async()=>({result:{}})){
 }
 test('content scripts cannot manage consent/review and page capture cannot forge source or project',async()=>{
  const h=await harness();const project=randomUUID();
- await assert.rejects(h.dispatch({type:'REVIEW'},h.page),/POPUP_REQUIRED/);
+ for(const type of ['REVIEW','CORRECT','RETIRE'])await assert.rejects(h.dispatch({type},h.page),/POPUP_REQUIRED/);
  await assert.rejects(h.dispatch({type:'ENABLE',site:'chatgpt.com',projectId:project},h.page),/POPUP_REQUIRED/);
  await h.dispatch({type:'ENABLE',site:'chatgpt.com',projectId:project},h.popup);
  const capture={type:'CAPTURE',url:'https://chatgpt.com/c/test',projectId:randomUUID(),message:{messageId:'1',role:'user',text:'synthetic'}};

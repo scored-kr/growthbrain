@@ -32,10 +32,16 @@ export class MemoryEngine {
       }
       previousCaptures.set(capture.id,capture);
     }
-    const active = new Set<string>();
+    const active = new Set<string>(), previousMemories = new Map<string,Memory>();
     for (const m of this.state.memories) {
       if (m.scope.type === 'project' && !projects.has(m.scope.projectId)) throw new Error('INVALID_PROJECT_REFERENCE');
       if (m.status !== 'candidate' && !m.reviewedAt) throw new Error('REVIEW_EVIDENCE_REQUIRED');
+      if (m.status === 'retired' ? !m.retiredAt || !m.retirementReason : m.retiredAt || m.retirementReason) throw new Error('INVALID_RETIREMENT');
+      if (m.correctionOf) {
+        const original=previousMemories.get(m.correctionOf);
+        if(!original || original.status!=='rejected' || original.key!==m.key || original.kind!==m.kind || !sameScope(original.scope,m.scope)) throw new Error('INVALID_CORRECTION');
+      }
+      previousMemories.set(m.id,m);
       if (m.status === 'active') {
         const key=JSON.stringify([m.scope,m.key]);
         if (active.has(key)) throw new Error('AMBIGUOUS_ACTIVE_MEMORY');
@@ -44,7 +50,7 @@ export class MemoryEngine {
       if (m.supersedesId) {
         const old=memories.get(m.supersedesId);
         if (!old || !sameScope(old.scope,m.scope) || old.key!==m.key) throw new Error('INVALID_SUPERSESSION');
-        if (m.status==='active' && old.status!=='superseded') throw new Error('INVALID_SUPERSESSION_STATUS');
+        if ((m.status==='active'||m.status==='retired') && old.status!=='superseded') throw new Error('INVALID_SUPERSESSION_STATUS');
       }
     }
     const checked=new Set<string>();
@@ -138,6 +144,24 @@ export class MemoryEngine {
     const m=this.state.memories.find(m=>m.id===id);
     if(!m || (m.scope.type==='project'&&m.scope.projectId!==projectId))throw new Error('CANDIDATE_NOT_FOUND');
     return this.review(id,decision,replacementId);
+  }
+  correctCandidate(projectId:string,id:string,value:string,reason:string) {
+    this.requireProject(projectId);
+    const old=this.state.memories.find(m=>m.id===id&&m.status==='candidate'&&(m.scope.type==='global'||m.scope.projectId===projectId));
+    if(!old)throw new Error('CANDIDATE_NOT_FOUND');
+    // Preserve the original source and scope; human correction is a new, unapproved record.
+    const corrected=this.propose({scope:old.scope,kind:old.kind,key:old.key,value,source:old.source,reason});
+    this.state.memories.find(m=>m.id===corrected.id)!.correctionOf=old.id;
+    old.status='rejected';old.reviewedAt=new Date().toISOString();
+    return {...corrected,correctionOf:old.id};
+  }
+  retireMemory(projectId:string,id:string,reason:string) {
+    this.requireProject(projectId);
+    const memory=this.state.memories.find(m=>m.id===id&&m.status==='active'&&(m.scope.type==='global'||m.scope.projectId===projectId));
+    if(!memory)throw new Error('ACTIVE_MEMORY_NOT_FOUND');
+    const parsedReason=proposalSchema.shape.reason.parse(reason);
+    memory.status='retired';memory.retiredAt=new Date().toISOString();memory.retirementReason=parsedReason;
+    return {id:memory.id,status:memory.status,historyRetained:true};
   }
   getContext(input: unknown) {
     const { projectId, requestConditions, maxCharacters } = contextSchema.parse(input);

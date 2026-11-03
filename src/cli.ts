@@ -69,7 +69,7 @@ try {
   const consent = await input.question('Type CONNECT to enable the local MCP connection, or press Enter to close: ');
   if (consent !== 'CONNECT') { await close(); process.exit(0); }
   broker = await startBroker(vault, directory);
-  console.log('Connected locally. Commands: projects, project, memories, propose, candidates, review, backup, delete-all, lock');
+  console.log('Connected locally. Commands: projects, project, memories, propose, candidates, review, correct, retire, backup, delete-all, lock');
   const end = () => { void close().finally(() => process.exit(0)); };
   process.once('SIGTERM', end); process.once('SIGINT', end);
   while (true) {
@@ -96,6 +96,21 @@ try {
         if (candidate.supersedesId) console.log('Replaces:', JSON.stringify(vault.read(e => e.snapshot().memories.find(m => m.id === candidate.supersedesId)),null,2));
         const choice = await input.question('Type APPROVE or REJECT; Enter cancels: ');
         if (choice === 'APPROVE' || choice === 'REJECT') console.log(await vault.mutate(e => e.review(id, choice === 'APPROVE' ? 'approve' : 'reject')));
+      } else if (action === 'correct' || action === 'retire') {
+        const projectId = await input.question('Selected project UUID: ');
+        const id = await input.question(action === 'correct' ? 'Candidate UUID: ' : 'Active memory UUID: ');
+        const memory = vault.read(e=>e.snapshot().memories.find(m=>m.id===id&&(m.scope.type==='global'||m.scope.projectId===projectId)));
+        if (!memory) throw new Error('MEMORY_NOT_FOUND');
+        console.log(JSON.stringify(memory, null, 2));
+        if (memory.scope.type === 'global') console.log('This is a common preference shared by all projects.');
+        if (action === 'correct') {
+          const value = await input.question('Corrected value (remains pending): ');
+          const reason = await input.question('Correction reason: ');
+          if (await input.question('Type SAVE to create a new pending candidate; Enter cancels: ') === 'SAVE') console.log(await vault.mutate(e=>e.correctCandidate(projectId,id,value,reason)));
+        } else {
+          const reason = await input.question('Retirement reason: ');
+          if (await input.question('History remains; common defaults may apply. Type RETIRE to stop using this memory: ') === 'RETIRE') console.log(await vault.mutate(e=>e.retireMemory(projectId,id,reason)));
+        }
       } else if (action === 'backup') {
         const path=await input.question('New encrypted backup path in a private directory: ');
         console.log(await vault.exportBackup(path));
@@ -103,7 +118,7 @@ try {
         if (await input.question('Deletes this device’s vault only; external backups and AI-held context remain. Type DELETE to confirm: ') === 'DELETE') {
           await broker?.close(); broker = undefined; await vault.deleteAll(); break;
         }
-      } else console.log('Commands: projects, project, memories, propose, candidates, review, backup, delete-all, lock');
+      } else console.log('Commands: projects, project, memories, propose, candidates, review, correct, retire, backup, delete-all, lock');
     } catch { console.log('Action failed. Check the project/candidate ID, explicit replacement, and field limits. No approval was assumed.'); }
   }
   await close();

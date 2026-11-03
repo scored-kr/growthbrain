@@ -6,7 +6,7 @@ import { callBroker, safeError } from './broker.js';
 const id=process.env.GROWTH_BRAIN_EXTENSION_ID;
 if(!id || !/^[a-p]{32}$/.test(id) || process.argv[2]!==`chrome-extension://${id}/`)process.exit(1);
 const path=process.env.GROWTH_BRAIN_SOCKET??join(homedir(),'.local/share/growth-brain/memory.sock');
-const request=z.object({id:z.string().max(100),method:z.enum(['list_projects','configure_capture','capture','list_memories','review_memory']),params:z.record(z.string(),z.unknown())}).strict();
+const request=z.object({id:z.string().max(100),method:z.enum(['list_projects','configure_capture','capture','list_memories','review_memory','correct_candidate','retire_memory']),params:z.record(z.string(),z.unknown())}).strict();
 const MAX=1024*1024;
 let buffer=Buffer.alloc(0),queue:Promise<void>=Promise.resolve();
 function reply(value:unknown) {

@@ -47,15 +47,27 @@ with tempfile.TemporaryDirectory(prefix='gb-terminal-') as directory:
         until('or Enter: ');send('')
         result=until('growth-brain> ')
         candidate=re.search(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}",result).group()
+        send('correct');until('Selected project UUID: ');send(project)
+        until('Candidate UUID: ');send(candidate)
+        until('Corrected value (remains pending): ');send('TERMINAL_CORRECTED_MEMORY')
+        until('Correction reason: ');send('Human clarification')
+        until('Enter cancels: ');send('SAVE')
+        result=until('growth-brain> ')
+        candidate=re.search(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}",result).group()
         send('review');until('Candidate UUID: ');send(candidate)
         until('Enter cancels: ');send('APPROVE')
         result=until('growth-brain> ');assert "active" in result
+        send('retire');until('Selected project UUID: ');send(project)
+        until('Active memory UUID: ');send(candidate)
+        until('Retirement reason: ');send('No longer applicable')
+        until('stop using this memory: ');send('RETIRE')
+        result=until('growth-brain> ');assert 'retired' in result
         assert 'TERMINAL_SYNTHETIC_MEMORY' not in Path(directory,'vault.json').read_text()
         send('delete-all');until('Type DELETE to confirm: ');send('DELETE')
         assert child.wait(timeout=10)==0
         assert not Path(directory,'vault.json').exists()
         assert password not in transcript, 'Passphrase appeared in terminal output'
-        print(json.dumps({'terminal_init_unlock_consent_propose_review_delete': 'passed', 'secret_echo': False}))
+        print(json.dumps({'terminal_init_unlock_consent_propose_correct_review_retire_delete': 'passed', 'secret_echo': False}))
     finally:
         if child.poll() is None:
             child.terminate();child.wait(timeout=10)

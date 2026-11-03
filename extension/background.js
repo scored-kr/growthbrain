@@ -82,6 +82,8 @@ export async function dispatch(message,sender){
   }
   if(message.type==='MEMORIES')return await native('list_memories',{projectId:message.projectId,status:message.status??'candidate',offset:message.offset??0,limit:20});
   if(message.type==='REVIEW')return await native('review_memory',{projectId:message.projectId,id:message.id,decision:message.decision,...(message.supersedesId?{supersedesId:message.supersedesId}:{})});
+  if(message.type==='CORRECT')return await native('correct_candidate',{projectId:message.projectId,id:message.id,value:message.value,reason:message.reason});
+  if(message.type==='RETIRE')return await native('retire_memory',{projectId:message.projectId,id:message.id,reason:message.reason});
   throw Error('INVALID_REQUEST');
 }
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{

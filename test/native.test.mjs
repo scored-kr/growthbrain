@@ -37,6 +37,8 @@ test('real native frames collect and review only with explicit site consent; ori
     await call('review_memory',{projectId:project.id,id:capture.candidateIds[0],decision:'approve'});
     assert.equal(vault.read(e=>e.getContext({projectId:project.id})).conditions[0].value,'한국어');
     const edited=(await call('capture',{...input,text:'영어로 답변해주세요'})).result;
+    const corrected=(await call('correct_candidate',{projectId:project.id,id:edited.candidateIds[0],value:'English',reason:'Human checked the intended language'})).result;
+    assert.equal(corrected.status,'candidate');edited.candidateIds=[corrected.id];
     const pending=(await call('list_memories',{projectId:project.id})).result.memories[0];
     assert.equal(pending.conflict.id,capture.candidateIds[0]);
     assert.equal((await call('review_memory',{projectId:project.id,id:edited.candidateIds[0],decision:'approve'})).error,'EXPLICIT_SUPERSESSION_REQUIRED');
@@ -50,6 +52,12 @@ test('real native frames collect and review only with explicit site consent; ori
       assert.ok(!result.isError);
       const context=JSON.parse(result.content[0].text);assert.equal(context.conditions[0].value,'English');
       assert.equal(context.conditions[0].supersedesId,capture.candidateIds[0]);
+      const retired=(await call('retire_memory',{projectId:project.id,id:corrected.id,reason:'Language constraint no longer applies'})).result;
+      assert.equal(retired.status,'retired');
+      const after=await client.callTool({name:'get_context',arguments:{projectId:project.id}});
+      assert.deepEqual(JSON.parse(after.content[0].text).conditions,[]);
+      const forbidden=await client.callTool({name:'retire_memory',arguments:{projectId:project.id,id:corrected.id,reason:'AI cannot retire'}});
+      assert.equal(forbidden.isError,true);
     }finally{await client.close()}
     await vault.close();assert.equal((await call('list_projects',{})).error,'VAULT_LOCKED');
   }finally{await broker.close();await vault.close();await rm(directory,{recursive:true,force:true});}
