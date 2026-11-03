@@ -1,16 +1,37 @@
-import { randomUUID } from 'node:crypto';
-import { contextSchema, identifier, proposalSchema, stateSchema, type Memory, type Scope, type State } from './model.js';
+import { createHash, randomUUID } from 'node:crypto';
+import { captureInputSchema, consentSchema, contextSchema, identifier, parseState, proposalSchema, stateSchema, type Capture, type Memory, type Scope, type State } from './model.js';
+import { classifyCapture } from './classifier.js';
 
 const sameScope = (a: Scope, b: Scope) => a.type === b.type && (a.type === 'global' || (b.type === 'project' && a.projectId === b.projectId));
+const hashText=(text:string)=>createHash('sha256').update(text).digest('hex');
+const captureIdentity=(c:{site:string;projectId:string;url:string;messageId:string;role:string})=>JSON.stringify([c.site,c.projectId,c.url,c.messageId,c.role]);
+export function canonicalUrl(input:string,site:string) {
+  const url=new URL(input);
+  if(url.protocol!=='https:' || url.hostname!==site || url.port || url.username || url.password)throw new Error('CAPTURE_URL_MISMATCH');
+  url.search='';url.hash='';return url.href;
+}
 
 /** Memory operations run on the user's device. Approval is deliberately absent from MCP. */
 export class MemoryEngine {
   private state: State;
   constructor(state: unknown) {
-    this.state = stateSchema.parse(state);
+    this.state = parseState(state);
     const projects = new Set(this.state.projects.map(p => p.id));
     const memories = new Map(this.state.memories.map(m => [m.id,m]));
     if (projects.size !== this.state.projects.length || memories.size !== this.state.memories.length) throw new Error('DUPLICATE_ID');
+    if(new Set(this.state.captures.map(c=>c.id)).size!==this.state.captures.length)throw new Error('DUPLICATE_CAPTURE_ID');
+    if(new Set(this.state.captureSettings.map(c=>c.site)).size!==this.state.captureSettings.length)throw new Error('DUPLICATE_SITE_CONSENT');
+    for(const consent of this.state.captureSettings)if(!projects.has(consent.projectId))throw new Error('INVALID_PROJECT_REFERENCE');
+    const previousCaptures=new Map<string,Capture>();
+    for(const capture of this.state.captures) {
+      if(!projects.has(capture.projectId))throw new Error('INVALID_PROJECT_REFERENCE');
+      if(canonicalUrl(capture.url,capture.site)!==capture.url || hashText(capture.text)!==capture.contentHash)throw new Error('INVALID_CAPTURE');
+      if(capture.previousId) {
+        const previous=previousCaptures.get(capture.previousId);
+        if(!previous || captureIdentity(previous)!==captureIdentity(capture))throw new Error('INVALID_CAPTURE_REVISION');
+      }
+      previousCaptures.set(capture.id,capture);
+    }
     const active = new Set<string>();
     for (const m of this.state.memories) {
       if (m.scope.type === 'project' && !projects.has(m.scope.projectId)) throw new Error('INVALID_PROJECT_REFERENCE');
@@ -38,6 +59,26 @@ export class MemoryEngine {
   }
   snapshot(): State { return structuredClone(this.state); }
   static empty(ownerId: string) { return new MemoryEngine({ version: 1, ownerId, projects: [], memories: [] }); }
+  configureCapture(input: unknown) {
+    const consent=consentSchema.parse(input);this.requireProject(consent.projectId);
+    this.state.captureSettings=this.state.captureSettings.filter(c=>c.site!==consent.site);
+    this.state.captureSettings.push(consent);return structuredClone(consent);
+  }
+  capture(input:unknown) {
+    const parsed=captureInputSchema.parse(input);this.requireProject(parsed.projectId);
+    const consent=this.state.captureSettings.find(c=>c.site===parsed.site);
+    if(!consent?.enabled || consent.projectId!==parsed.projectId)throw new Error('CAPTURE_NOT_CONSENTED');
+    const url=canonicalUrl(parsed.url,parsed.site),contentHash=hashText(parsed.text);
+    const normalized={...parsed,url};
+    const previous=this.state.captures.findLast(c=>captureIdentity(c)===captureIdentity(normalized));
+    if(previous?.contentHash===contentHash)return {id:previous.id,duplicate:true,candidateIds:[]};
+    if(this.state.captures.length>=5000)throw new Error('CAPTURE_LIMIT');
+    const capture:Capture={...normalized,id:randomUUID(),contentHash,capturedAt:new Date().toISOString(),...(previous?{previousId:previous.id}:{})};
+    const proposals=classifyCapture(capture);
+    if(this.state.memories.length+proposals.length>10000)throw new Error('MEMORY_LIMIT');
+    const candidateIds=proposals.map(p=>this.propose(p).id);
+    this.state.captures.push(capture);return {id:capture.id,duplicate:false,candidateIds};
+  }
   private requireProject(id: string) {
     identifier.parse(id);
     if (!this.state.projects.some(p => p.id === id)) throw new Error('PROJECT_NOT_FOUND');

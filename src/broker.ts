@@ -2,16 +2,20 @@ import { createServer, createConnection, type Server } from 'node:net';
 import { chmod, lstat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { contextSchema, identifier, proposalSchema } from './model.js';
+import { captureInputSchema, consentSchema, contextSchema, identifier, proposalSchema } from './model.js';
 import { privateDirectory, type VaultSession } from './vault.js';
 
 const requestSchema = z.discriminatedUnion('method', [
   z.object({ method: z.literal('get_context'), params: contextSchema }).strict(),
   z.object({ method: z.literal('search_memory'), params: z.object({ projectId: identifier, query: z.string().trim().min(1).max(200), limit: z.number().int().min(1).max(50).default(20) }).strict() }).strict(),
   z.object({ method: z.literal('propose_memory'), params: proposalSchema }).strict(),
+  // Local native-messaging/UI operations; these are never registered as MCP tools.
+  z.object({method:z.literal('list_projects'),params:z.object({}).strict()}).strict(),
+  z.object({method:z.literal('configure_capture'),params:consentSchema}).strict(),
+  z.object({method:z.literal('capture'),params:captureInputSchema}).strict(),
 ]);
 const MAX_REQUEST = 64 * 1024;
-const safeErrors = new Set(['PROJECT_NOT_FOUND','MEMORY_LIMIT','INVALID_SUPERSESSION','VAULT_LOCKED','REQUEST_CONDITION_LIMIT','VAULT_SIZE_LIMIT']);
+const safeErrors = new Set(['PROJECT_NOT_FOUND','MEMORY_LIMIT','INVALID_SUPERSESSION','VAULT_LOCKED','REQUEST_CONDITION_LIMIT','VAULT_SIZE_LIMIT','CAPTURE_NOT_CONSENTED','CAPTURE_LIMIT','CAPTURE_URL_MISMATCH']);
 export const safeError = (e: unknown) => e instanceof Error && safeErrors.has(e.message) ? e.message : 'REQUEST_FAILED';
 
 export async function startBroker(vault: VaultSession, directory: string) {
@@ -35,7 +39,10 @@ export async function startBroker(vault: VaultSession, directory: string) {
         let result: unknown;
         if (method === 'get_context') result = vault.read(e => e.getContext(params));
         else if (method === 'search_memory') result = vault.read(e => e.search(params.projectId, params.query, params.limit));
-        else result = await vault.mutate(e => e.propose(params));
+        else if(method==='propose_memory')result = await vault.mutate(e => e.propose(params));
+        else if(method==='list_projects')result=vault.read(e=>({projects:e.snapshot().projects,settings:e.snapshot().captureSettings}));
+        else if(method==='configure_capture')result=await vault.mutate(e=>e.configureCapture(params));
+        else result=await vault.mutate(e=>e.capture(params));
         socket.end(JSON.stringify({ result }) + '\n');
       })().catch(e => socket.end(JSON.stringify({ error: safeError(e) }) + '\n'));
     });
