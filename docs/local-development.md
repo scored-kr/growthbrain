@@ -24,6 +24,7 @@ npm run vault -- serve
 - `project`: 프로젝트를 생성하고 UUID를 표시한다.
 - `projects`: 현재 금고의 프로젝트 목록.
 - `memories`: 상태·범위·출처·변경 사유와 함께 전체 기억을 확인한다.
+- `backup`: 새 파일 경로에 암호문 백업을 저장한다. 기존 파일을 덮어쓰지 않는다.
 - `propose`: 명시적으로 공통 또는 프로젝트 범위를 선택해 기억 후보를 만든다.
 - `candidates`, `review`: 후보·출처·변경 대상을 보고 APPROVE 또는 REJECT를 입력한다.
 - `lock`: 소켓을 종료하고 메모리상의 키 버퍼를 지운다.
@@ -32,6 +33,14 @@ npm run vault -- serve
 
 같은 범위·키의 기존 결정을 바꾸려면 기존 기억 UUID를 `supersedesId`로 명시해야 한다.
 확정된 이전 기억은 superseded로 전환된다. 모델의 제안만으로 승인되지 않는다.
+
+백업은 다음 명령으로 **아직 존재하지 않는 새 디렉터리**에 복원한다. 사용자 터미널에서
+원래 비밀번호를 비표시 입력하고 암호 인증/데이터 불변식을 통과해야 복원된다.
+기존 금고는 변경하지 않는다. 복구 키 발급이나 비밀번호 분실 복구 기능은 아니다.
+
+```sh
+npm run vault -- restore /absolute/new-vault-directory /absolute/private-directory/backup.enc
+```
 
 ## MCP 연결
 

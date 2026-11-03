@@ -51,3 +51,21 @@ test('serialized concurrent writes survive reopen; invalid mutation rolls back; 
   await assert.rejects(readFile(join(f.directory,'vault.json')), {code:'ENOENT'});
   await assert.rejects(f.session.mutate(e=>e.addProject('after lock')),/VAULT_LOCKED/);
 });
+
+test('encrypted backup restores only to a new directory after authentication',async t=>{
+  const f=await setup(t);
+  const project=await f.session.mutate(e=>e.addProject('BACKUP_PRIVATE_NAME'));
+  await f.session.mutate(e=>approve(e,proposal({type:'project',projectId:project.id},'tone','BACKUP_PRIVATE_MEMORY')));
+  const backup=join(f.directory,'backup.enc');await f.session.exportBackup(backup);
+  const bytes=await readFile(backup,'utf8');assert.ok(!bytes.includes('BACKUP_PRIVATE'));
+  await assert.rejects(f.session.exportBackup(backup),{code:'EEXIST'});
+  assert.equal(await readFile(backup,'utf8'),bytes);
+  const target=join(f.directory,'restored');
+  await assert.rejects(VaultSession.restore(backup,target,f.owner,'incorrect-long-password'),/UNLOCK_FAILED/);
+  await assert.rejects(stat(target),{code:'ENOENT'});
+  await assert.rejects(VaultSession.restore(backup,f.directory,f.owner,f.password),{code:'EEXIST'});
+  const restored=await VaultSession.restore(backup,target,f.owner,f.password);
+  try {assert.equal(restored.read(e=>e.getContext({projectId:project.id})).conditions[0].value,'BACKUP_PRIVATE_MEMORY');}
+  finally {await restored.close();}
+  assert.equal(f.session.read(e=>e.snapshot().projects[0].name),'BACKUP_PRIVATE_NAME');
+});

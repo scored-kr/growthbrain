@@ -6,7 +6,36 @@ const sameScope = (a: Scope, b: Scope) => a.type === b.type && (a.type === 'glob
 /** Memory operations run on the user's device. Approval is deliberately absent from MCP. */
 export class MemoryEngine {
   private state: State;
-  constructor(state: unknown) { this.state = stateSchema.parse(state); }
+  constructor(state: unknown) {
+    this.state = stateSchema.parse(state);
+    const projects = new Set(this.state.projects.map(p => p.id));
+    const memories = new Map(this.state.memories.map(m => [m.id,m]));
+    if (projects.size !== this.state.projects.length || memories.size !== this.state.memories.length) throw new Error('DUPLICATE_ID');
+    const active = new Set<string>();
+    for (const m of this.state.memories) {
+      if (m.scope.type === 'project' && !projects.has(m.scope.projectId)) throw new Error('INVALID_PROJECT_REFERENCE');
+      if (m.status !== 'candidate' && !m.reviewedAt) throw new Error('REVIEW_EVIDENCE_REQUIRED');
+      if (m.status === 'active') {
+        const key=JSON.stringify([m.scope,m.key]);
+        if (active.has(key)) throw new Error('AMBIGUOUS_ACTIVE_MEMORY');
+        active.add(key);
+      }
+      if (m.supersedesId) {
+        const old=memories.get(m.supersedesId);
+        if (!old || !sameScope(old.scope,m.scope) || old.key!==m.key) throw new Error('INVALID_SUPERSESSION');
+        if (m.status==='active' && old.status!=='superseded') throw new Error('INVALID_SUPERSESSION_STATUS');
+      }
+    }
+    const checked=new Set<string>();
+    for (const memory of this.state.memories) {
+      const path=new Set<string>(); let cursor: Memory|undefined=memory;
+      while(cursor && !checked.has(cursor.id)) {
+        if(path.has(cursor.id)) throw new Error('SUPERSESSION_CYCLE');
+        path.add(cursor.id);cursor=cursor.supersedesId?memories.get(cursor.supersedesId):undefined;
+      }
+      for(const id of path)checked.add(id);
+    }
+  }
   snapshot(): State { return structuredClone(this.state); }
   static empty(ownerId: string) { return new MemoryEngine({ version: 1, ownerId, projects: [], memories: [] }); }
   private requireProject(id: string) {

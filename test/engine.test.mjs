@@ -81,3 +81,15 @@ test('large matching results respect response budget and report omissions', () =
   assert.equal(result.matches.length+result.omittedCount,20);
   assert.ok(Buffer.byteLength(JSON.stringify(result))<256*1024);
 });
+
+test('restored state rejects duplicate IDs, orphan projects, ambiguous active records and cycles',()=>{
+  const {engine,project}=fixture();const scope={type:'project',projectId:project.id};
+  const a=approve(engine,proposal(scope,'tone','one'));
+  const b=approve(engine,proposal(scope,'tone','two',{supersedesId:a}));
+  const original=engine.snapshot();
+  let state=structuredClone(original);state.projects.push(state.projects[0]);assert.throws(()=>new MemoryEngine(state),/DUPLICATE_ID/);
+  state=structuredClone(original);state.projects=[];assert.throws(()=>new MemoryEngine(state),/INVALID_PROJECT_REFERENCE/);
+  state=structuredClone(original);state.memories[1].supersedesId=undefined;state.memories[0].status='active';assert.throws(()=>new MemoryEngine(state),/AMBIGUOUS_ACTIVE_MEMORY/);
+  state=structuredClone(original);state.memories[0].supersedesId=b;state.memories[1].status='superseded';assert.throws(()=>new MemoryEngine(state),/SUPERSESSION_CYCLE/);
+  state=structuredClone(original);state.memories[1].reviewedAt=undefined;assert.throws(()=>new MemoryEngine(state),/REVIEW_EVIDENCE_REQUIRED/);
+});

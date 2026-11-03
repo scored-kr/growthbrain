@@ -13,8 +13,8 @@ if (!process.stdin.isTTY || !process.stdout.isTTY) {
   process.exit(1);
 }
 const [command, pathArg, ...extra] = process.argv.slice(2);
-if (!['init', 'serve'].includes(command ?? '') || extra.length) {
-  console.error('Usage: npm run vault -- init|serve [private-directory]'); process.exit(1);
+if (!['init', 'serve','restore'].includes(command ?? '') || (command==='restore' ? !pathArg || extra.length!==1 : extra.length!==0)) {
+  console.error('Usage: npm run vault -- init|serve [private-directory], or restore <new-directory> <encrypted-backup>'); process.exit(1);
 }
 const directory = resolve(pathArg ?? join(homedir(), '.local', 'share', 'growth-brain'));
 async function hidden(question: string): Promise<string> {
@@ -40,16 +40,16 @@ let broker: Awaited<ReturnType<typeof startBroker>> | undefined;
 let input: ReturnType<typeof createInterface> | undefined;
 async function close() { input?.close(); await broker?.close(); await vault?.close(); }
 try {
-  const ownerId = command === 'init' ? randomUUID() : JSON.parse(await readFile(join(directory, 'vault.json'), 'utf8')).ownerId;
+  const ownerId = command === 'init' ? randomUUID() : JSON.parse(await readFile(command==='restore'?resolve(extra[0]!):join(directory, 'vault.json'), 'utf8')).ownerId;
   let password = await hidden('Local vault passphrase (at least 12 characters; never send this to an AI): ');
   if (command === 'init' && password !== await hidden('Confirm passphrase: ')) throw new Error('PASSPHRASES_DIFFER');
-  vault = await VaultSession.open(directory, ownerId, password, command === 'init'); password = '';
+  vault = command==='restore'?await VaultSession.restore(extra[0]!,directory,ownerId,password):await VaultSession.open(directory, ownerId, password, command === 'init'); password = '';
   input = createInterface({ input: process.stdin, output: process.stdout });
   console.log('Selected memories will be readable by the connected AI service. Other local programs running as your OS user can access this unlocked socket. Closing this terminal locks the vault.');
   const consent = await input.question('Type CONNECT to enable the local MCP connection, or press Enter to close: ');
   if (consent !== 'CONNECT') { await close(); process.exit(0); }
   broker = await startBroker(vault, directory);
-  console.log('Connected locally. Commands: projects, project, memories, propose, candidates, review, delete-all, lock');
+  console.log('Connected locally. Commands: projects, project, memories, propose, candidates, review, backup, delete-all, lock');
   const end = () => { void close().finally(() => process.exit(0)); };
   process.once('SIGTERM', end); process.once('SIGINT', end);
   while (true) {
@@ -76,11 +76,14 @@ try {
         if (candidate.supersedesId) console.log('Replaces:', JSON.stringify(vault.read(e => e.snapshot().memories.find(m => m.id === candidate.supersedesId)),null,2));
         const choice = await input.question('Type APPROVE or REJECT; Enter cancels: ');
         if (choice === 'APPROVE' || choice === 'REJECT') console.log(await vault.mutate(e => e.review(id, choice === 'APPROVE' ? 'approve' : 'reject')));
+      } else if (action === 'backup') {
+        const path=await input.question('New encrypted backup path in a private directory: ');
+        console.log(await vault.exportBackup(path));
       } else if (action === 'delete-all') {
         if (await input.question('Deletes this device’s vault only; external backups and AI-held context remain. Type DELETE to confirm: ') === 'DELETE') {
           await broker?.close(); broker = undefined; await vault.deleteAll(); break;
         }
-      } else console.log('Commands: projects, project, memories, propose, candidates, review, delete-all, lock');
+      } else console.log('Commands: projects, project, memories, propose, candidates, review, backup, delete-all, lock');
     } catch { console.log('Action failed. Check the project/candidate ID, explicit replacement, and field limits. No approval was assumed.'); }
   }
   await close();

@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes, scrypt } from 'node:crypto';
-import { open, readFile, rename, unlink, mkdir, lstat } from 'node:fs/promises';
+import { open, readFile, rename, unlink, mkdir, lstat, rmdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { MemoryEngine } from './engine.js';
@@ -22,6 +22,28 @@ async function derive(password: string, salt: Buffer) {
   return await new Promise<Buffer>((resolveKey, reject) => {
     scrypt(password, salt, 32, { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }, (error, key) => error ? reject(error) : resolveKey(key));
   });
+}
+async function readEnvelope(file: string) {
+  const stat=await lstat(file);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.uid!==process.getuid?.() || (stat.mode & 0o077) || stat.size>MAX_BYTES) throw new Error('INVALID_VAULT_FILE');
+  return envelopeSchema.parse(JSON.parse(await readFile(file,'utf8')));
+}
+async function decrypt(data: Envelope, ownerId: string, password: string) {
+  if (data.ownerId!==ownerId) throw new Error('OWNER_MISMATCH');
+  const salt=Buffer.from(data.salt,'base64'), iv=Buffer.from(data.iv,'base64'), tag=Buffer.from(data.tag,'base64');
+  if (salt.length!==16 || iv.length!==12 || tag.length!==16) throw new Error('INVALID_ENVELOPE');
+  const key=await derive(password,salt);
+  try {
+    const decipher=createDecipheriv('aes-256-gcm',key,iv);
+    decipher.setAAD(Buffer.from(`growth-brain:1:${ownerId}`));decipher.setAuthTag(tag);
+    let plaintext: Buffer;
+    try { plaintext=Buffer.concat([decipher.update(Buffer.from(data.ciphertext,'base64')),decipher.final()]); }
+    catch { throw new Error('UNLOCK_FAILED'); }
+    let engine: MemoryEngine;
+    try { engine=new MemoryEngine(JSON.parse(plaintext.toString('utf8'))); } finally { plaintext.fill(0); }
+    if(engine.snapshot().ownerId!==ownerId)throw new Error('OWNER_MISMATCH');
+    return {engine,key,salt};
+  } catch(e) {key.fill(0);throw e;}
 }
 function seal(engine: MemoryEngine, key: Buffer, salt: Buffer): Envelope {
   const state = engine.snapshot();
@@ -71,25 +93,39 @@ export class VaultSession {
         engine = MemoryEngine.empty(ownerId);
         await persist(file, seal(engine, key, salt), true);
       } else {
-        const stat = await lstat(file);
-        if (!stat.isFile() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || (stat.mode & 0o077) || stat.size > MAX_BYTES) throw new Error('INVALID_VAULT_FILE');
-        const data = envelopeSchema.parse(JSON.parse(await readFile(file, 'utf8')));
-        if (data.ownerId !== ownerId) throw new Error('OWNER_MISMATCH');
-        salt = Buffer.from(data.salt, 'base64');
-        const iv = Buffer.from(data.iv, 'base64'); const tag = Buffer.from(data.tag, 'base64');
-        if (salt.length !== 16 || iv.length !== 12 || tag.length !== 16) throw new Error('INVALID_ENVELOPE');
-        key = await derive(password, salt);
-        const decipher = createDecipheriv('aes-256-gcm', key, iv);
-        decipher.setAAD(Buffer.from(`growth-brain:1:${ownerId}`)); decipher.setAuthTag(tag);
-        let plaintext: Buffer;
-        try { plaintext = Buffer.concat([decipher.update(Buffer.from(data.ciphertext, 'base64')), decipher.final()]); }
-        catch { throw new Error('UNLOCK_FAILED'); }
-        try { engine = new MemoryEngine(JSON.parse(plaintext.toString('utf8'))); }
-        finally { plaintext.fill(0); }
-        if (engine.snapshot().ownerId !== ownerId) throw new Error('OWNER_MISMATCH');
+        ({engine,key,salt}=await decrypt(await readEnvelope(file),ownerId,password));
       }
       return new VaultSession(file, salt, engine, key, lockFile);
     } catch (e) { key?.fill(0); await unlink(lockFile); throw e; }
+  }
+  static async restore(backup: string, directory: string, ownerId: string, password: string) {
+    identifier.parse(ownerId);
+    const {engine,key,salt}=await decrypt(await readEnvelope(resolve(backup)),ownerId,password);
+    directory=resolve(directory);
+    try { await mkdir(directory,{mode:0o700}); }
+    catch(e) { key.fill(0);throw e; }
+    const file=join(directory,'vault.json'), lockFile=join(directory,'vault.lock');
+    try {
+      const lock=await open(lockFile,'wx',0o600);
+      try {await lock.writeFile(String(process.pid));} finally {await lock.close();}
+      await persist(file,seal(engine,key,salt),true);
+      return new VaultSession(file,salt,engine,key,lockFile);
+    } catch(e) {
+      key.fill(0);
+      // Only remove files created in the new, owned directory; never overwrite a pre-existing vault.
+      await unlink(lockFile).catch(()=>{});await unlink(file).catch(()=>{});await rmdir(directory).catch(()=>{});
+      throw e;
+    }
+  }
+  async exportBackup(destination: string) {
+    if(this.closing)throw new Error('VAULT_LOCKED');
+    destination=resolve(destination);
+    const run=this.queue.then(async()=>{
+      this.requireOpen();await privateDirectory(dirname(destination));
+      await persist(destination,await readEnvelope(this.file),true);
+      return {path:destination,encrypted:true};
+    });
+    this.queue=run.catch(()=>{});return await run;
   }
   private requireOpen() { if (!this.engine || !this.key) throw new Error('VAULT_LOCKED'); return this.engine; }
   read<T>(operation: (engine: MemoryEngine) => T) {
