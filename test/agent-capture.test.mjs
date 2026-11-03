@@ -56,6 +56,10 @@ test('Codex and Claude hook subprocesses capture via real IPC, encrypt raw text,
   const broker=await startBroker(vault,directory);
   const client=new Client({name:'agent-capture-test',version:'1'});
   t.after(async()=>{await client.close().catch(()=>{});await broker.close();await vault.close();await rm(root,{recursive:true,force:true});});
+  const unbound=await runHook('codex',{cwd:join(root,'work'),session_id:randomUUID(),turn_id:randomUUID(),hook_event_name:'UserPromptSubmit',prompt:'UNCONSENTED_TEXT'},broker.path);
+  assert.match(unbound.output.hookSpecificOutput.additionalContext,/common preferences first/);
+  assert.match(unbound.output.hookSpecificOutput.additionalContext,/Capture is disabled/);
+  assert.equal(vault.read(e=>e.snapshot().agentCaptures.length),0);
   for(const agent of ['codex','claude-code']) {
     await vault.mutate(e=>e.configureAgentCapture({client:agent,workspace:join(root,'work'),projectId:project.id,enabled:true}));
     const event={cwd:join(root,'work'),session_id:randomUUID(),...(agent==='codex'?{turn_id:randomUUID()}:{prompt_id:randomUUID()}),transcript_path:'/must/not/be/read/auth.json'};

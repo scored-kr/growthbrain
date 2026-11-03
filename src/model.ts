@@ -81,12 +81,13 @@ export function parseState(state: unknown) {
 }
 export const requestConditionsSchema = z.record(z.string().regex(/^[a-z][a-z0-9_.-]{0,79}$/), z.string().trim().min(1).max(4000)).default({});
 export const contextSchema = z.object({
-  projectId: identifier,
+  projectId: identifier.optional(),
+  query:z.string().max(2000).default(''),
   requestConditions: requestConditionsSchema,
   maxCharacters: z.number().int().min(512).max(32000).default(12000),
 }).strict();
 export const searchSchema = z.object({
-  projectId: identifier,
+  projectId: identifier.optional(),
   query: z.string().trim().min(1).max(200),
   limit: z.number().int().min(1).max(50).default(20),
   requestConditions: requestConditionsSchema,

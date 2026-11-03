@@ -28,7 +28,8 @@ python scripts/claude-integration.py install
 python scripts/agent-hooks.py install --client claude-code
 ```
 
-기존 Codex 스킬이 알려진 이전 배포본이면 `codex-integration.py upgrade`를 사용한다.
+알려진 이전 스킬 배포본은 해당 설치기의 `upgrade`를 사용한다. Codex와 Claude 모두 지원하며
+사용자 편집본은 덮어쓰지 않는다.
 다른 금고를 사용할 때에는 각 명령에 같은 `--socket /absolute/vault/memory.sock`을 전달한다.
 훅 설치기는 Codex `~/.codex/hooks.json`, Claude `~/.claude/settings.json`에 소유 항목만
 병합한다. 사용자 편집/알 수 없는 소유 항목은 덮어쓰지 않는다. `--config`로 명시 경로를
@@ -42,7 +43,9 @@ python scripts/agent-hooks.py install --client claude-code
 5. `agent-status`로 동의를 확인하고 `agent-stop`에서 `STOP`으로 중지한다.
 
 폴더명에서 프로젝트를 추측하지 않는다. 하위 폴더도 자동 상속하지 않으며 별도 연결이 필요하다.
-`SessionStart`와 입력 훅은 연결된 프로젝트의 MCP 조회를 지시한다. 이 안내는 확정 기억 본문을
+`SessionStart`와 입력 훅은 공통을 먼저 읽는 MCP 조회를 지시하며, 연결된 프로젝트가 있으면
+해당 UUID를 전달하도록 한다. 미연결 폴더는 대화를 수집하지 않고 공통 조회/명시 트리거 안내만 한다.
+[공통·프로젝트 색인](memory-index.md)의 선택 규칙을 따른다. 이 안내는 확정 기억 본문을
 주입하지 않으며, AI가 실제 `get_context`를 호출하고 적용하는지는 별도 검증 대상이다.
 
 ## 수집과 보호 범위

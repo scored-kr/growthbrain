@@ -31,7 +31,11 @@ class AgentInstallerTest(unittest.TestCase):
             def run(action):return subprocess.run(['python','scripts/claude-integration.py',action,'--config',str(config),'--skill-dir',str(skill)],capture_output=True,text=True)
             self.assertEqual(run('install').returncode,0);self.assertEqual(run('install').returncode,0)
             saved=(skill/'SKILL.md').read_bytes();(skill/'SKILL.md').write_text('User edited')
-            before=config.read_bytes();self.assertNotEqual(run('remove').returncode,0);self.assertEqual(config.read_bytes(),before)
+            before=config.read_bytes();self.assertNotEqual(run('remove').returncode,0);self.assertNotEqual(run('upgrade').returncode,0);self.assertEqual(config.read_bytes(),before)
+            (skill/'SKILL.md').write_bytes(Path('test/fixtures/codex-skill-v2.md').read_bytes())
+            self.assertNotEqual(run('install').returncode,0)
+            self.assertEqual(run('upgrade').returncode,0);self.assertEqual(run('upgrade').returncode,0)
+            self.assertEqual((skill/'SKILL.md').read_bytes(),saved);self.assertEqual(config.read_bytes(),before)
             (skill/'SKILL.md').write_bytes(saved);self.assertEqual(run('remove').returncode,0)
             self.assertEqual(json.loads(config.read_text()),original)
 

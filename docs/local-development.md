@@ -29,6 +29,7 @@ npm run vault -- serve
 - `candidates`, `review`: 후보·출처·변경 대상을 보고 APPROVE 또는 REJECT를 입력한다.
 - `correct`: 값과 사유를 확인하고 SAVE로 새 승인 대기 후보를 만든다. 원래 후보와 출처는 보존한다.
 - `retire`: 확정 기억을 RETIRE로 사용 중지한다. 이력은 보존하고 조회·검색에서 제외한다.
+- `route-set`, `route-clear`, `routes`: 사용자 지정 프로젝트 트리거를 등록·해제·확인한다.
 - `lock`: 소켓을 종료하고 메모리상의 키 버퍼를 지운다.
 - `delete-all`: DELETE 확인 후 해당 기기의 금고 파일만 삭제한다. AI 서비스에 이미 전달된
   내용, 외부 백업, 아직 미구현인 클라우드 동기화 데이터 삭제를 보장하지 않는다.
@@ -53,12 +54,14 @@ Codex/Claude Code 자동 대화 수집은 [에이전트 훅 설치·동의](agen
 기본 소켓: `~/.local/share/growth-brain/memory.sock`.
 별도 금고 경로 사용 시 `GROWTH_BRAIN_SOCKET`에 해당 소켓 경로를 지정한다. 경로는 비밀값이 아니다.
 
-- `get_context(projectId, requestConditions?, maxCharacters?)`: 승인된 공통/프로젝트 조건의
-  유효한 뷰. 현재 명시 요청을 일회성으로 우선 적용한다. 생략 시 `omittedCount`를 반환한다.
-- `search_memory(projectId, query, limit?, requestConditions?)`: 유효한 범위의 로컬 키워드 검색.
+- `get_context(projectId?, query?, requestConditions?, maxCharacters?)`: 공통을 항상 먼저 읽으며
+  명시 프로젝트 또는 단일 사용자 트리거에 해당하는 프로젝트를 추가 조회한다. 현재 명시 요청을
+  일회성으로 우선 적용한다. 생략 시 `omittedCount`, 모호한 선택은 `routing`에 표시한다.
+- `search_memory(projectId?, query, limit?, requestConditions?)`: 공통/프로젝트별 로컬 역색인 검색.
   추가 검색마다 `get_context`와 같은 현재 명시 요청 조건을 전달한다. 그 조건으로 덮어쓴
   저장 기억은 제외하며 현재 요청을 확정 기억으로 저장하거나 검색 결과에 추가하지 않는다.
-  `matches`와 응답 크기/개수 제한으로 생략된 `omittedCount`를 반환한다.
+  `matches`, 관련도/일치어, `routing`, `searchedScopes`, 크기/개수 제한의 `omittedCount`를 반환한다.
+  확정된 프로젝트 UUID도 추가 검색에 전달한다. [색인 구조와 평가 한계](memory-index.md)를 참고한다.
 - `propose_memory(scope, kind, key, value, source, reason, supersedesId?)`: 후보만 저장.
 
 도구에 승인·비밀번호·복구 키·로그인 기능은 없다. 잠금 상태는 `VAULT_LOCKED`로 거부한다.

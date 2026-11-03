@@ -69,7 +69,7 @@ try {
   const consent = await input.question('Type CONNECT to enable the local MCP connection, or press Enter to close: ');
   if (consent !== 'CONNECT') { await close(); process.exit(0); }
   broker = await startBroker(vault, directory);
-  console.log('Connected locally. Commands: projects, project, memories, propose, candidates, review, correct, retire, agent-bind, agent-stop, agent-status, backup, delete-all, lock');
+  console.log('Connected locally. Commands: projects, project, memories, propose, candidates, review, correct, retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, delete-all, lock');
   const end = () => { void close().finally(() => process.exit(0)); };
   process.once('SIGTERM', end); process.once('SIGINT', end);
   while (true) {
@@ -111,6 +111,12 @@ try {
           const reason = await input.question('Retirement reason: ');
           if (await input.question('History remains; common defaults may apply. Type RETIRE to stop using this memory: ') === 'RETIRE') console.log(await vault.mutate(e=>e.retireMemory(projectId,id,reason)));
         }
+      } else if (action === 'routes') {
+        console.log(JSON.stringify(vault.read(e=>e.snapshot().projectTriggers),null,2));
+      } else if (action === 'route-set' || action === 'route-clear') {
+        const projectId=await input.question('Selected project UUID: ');
+        const keywords=action==='route-set'?(await input.question('Explicit trigger keywords, separated by commas: ')).split(',').map(s=>s.trim()):[];
+        if(await input.question('Common memory is always read first. Type ROUTE to save, or Enter to cancel: ')==='ROUTE')console.log(await vault.mutate(e=>e.configureProjectTriggers(projectId,keywords)));
       } else if (action === 'agent-status') {
         console.log(JSON.stringify(vault.read(e=>e.snapshot().agentBindings),null,2));
       } else if (action === 'agent-bind' || action === 'agent-stop') {
@@ -126,7 +132,7 @@ try {
         if (await input.question('Deletes this device’s vault only; external backups and AI-held context remain. Type DELETE to confirm: ') === 'DELETE') {
           await broker?.close(); broker = undefined; await vault.deleteAll(); break;
         }
-      } else console.log('Commands: projects, project, memories, propose, candidates, review, correct, retire, agent-bind, agent-stop, agent-status, backup, delete-all, lock');
+      } else console.log('Commands: projects, project, memories, propose, candidates, review, correct, retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, delete-all, lock');
     } catch { console.log('Action failed. Check the project/candidate ID, explicit replacement, and field limits. No approval was assumed.'); }
   }
   await close();

@@ -165,10 +165,18 @@ export class VaultSession {
     // Return a detached view so read operations cannot mutate the durable engine.
     return operation(new MemoryEngine(this.requireOpen().snapshot()));
   }
+  getContext(input:unknown) {
+    if(this.closing)throw new Error('VAULT_LOCKED');
+    return structuredClone(this.requireOpen().getContext(input));
+  }
+  search(projectId:string|undefined,query:string,limit=20,requestConditions:unknown={}) {
+    if(this.closing)throw new Error('VAULT_LOCKED');
+    return structuredClone(this.requireOpen().search(projectId,query,limit,requestConditions));
+  }
   mutate<T>(operation: (engine: MemoryEngine) => T): Promise<T> {
     if (this.closing) return Promise.reject(new Error('VAULT_LOCKED'));
     const run = this.queue.then(async () => {
-      const next = new MemoryEngine(this.requireOpen().snapshot());
+      const next = this.requireOpen().fork();
       const result = operation(next);
       await persist(this.file, seal(next, this.key!, this.header));
       this.engine = next;

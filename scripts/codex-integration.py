@@ -11,7 +11,7 @@ import sys
 import tempfile
 
 # Exact shipped bytes from 8bf573d; arbitrary edits are never treated as an upgrade source.
-LEGACY_SKILL_HASHES = {'8cbc5b620a99e5425636598156a059d96155133c37caddd40109db7b6e00df84'}
+LEGACY_SKILL_HASHES = {'8cbc5b620a99e5425636598156a059d96155133c37caddd40109db7b6e00df84', 'fcaeb51c45ff344ae1b9892cac02083b4c104e7c870890e04ec6ae63b523925f'}
 
 parser = argparse.ArgumentParser()
 parser.add_argument('action', choices=['install', 'upgrade', 'remove'])

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Preserving user-scoped Claude Code MCP/skill registration; no auth or hook trust edits."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -9,7 +10,7 @@ import sys
 import tempfile
 
 p=argparse.ArgumentParser()
-p.add_argument('action',choices=['install','remove'])
+p.add_argument('action',choices=['install','upgrade','remove'])
 p.add_argument('--config',type=Path,default=Path.home()/'.claude.json')
 p.add_argument('--skill-dir',type=Path,default=Path.home()/'.claude/skills/growth-brain')
 p.add_argument('--socket',type=Path,default=Path.home()/'.local/share/growth-brain/memory.sock')
@@ -25,8 +26,23 @@ try:
 except (ValueError,AttributeError):sys.exit('Unknown MCP configuration. Nothing changed.')
 owned={'type':'stdio','command':node,'args':[str(entry)],'env':{'GROWTH_BRAIN_SOCKET':str(a.socket)}}
 if 'growth_brain' in servers and servers['growth_brain']!=owned:sys.exit('Modified Growth Brain MCP entry. Nothing changed.')
-if target.exists() and (not target.is_file() or target.read_bytes()!=source):sys.exit('Modified Growth Brain skill. Nothing changed.')
+if target.exists() and not target.is_file():sys.exit('Modified Growth Brain skill. Nothing changed.')
+installed=target.read_bytes() if target.exists() else None
+if installed is not None and installed!=source:
+    if hashlib.sha256(installed).hexdigest()!='fcaeb51c45ff344ae1b9892cac02083b4c104e7c870890e04ec6ae63b523925f':sys.exit('Modified Growth Brain skill. Nothing changed.')
+    if a.action=='install':sys.exit('Known older skill; run upgrade. Nothing changed.')
 if a.skill_dir.exists() and (not a.skill_dir.is_dir() or set(a.skill_dir.iterdir())-{target}):sys.exit('Unrelated skill files. Nothing changed.')
+if a.action=='upgrade':
+    if installed is None or servers.get('growth_brain')!=owned:sys.exit('Upgrade requires an owned MCP and skill. Nothing changed.')
+    if installed!=source:
+        fd,temp=tempfile.mkstemp(prefix='.growth-brain-upgrade-',dir=a.skill_dir)
+        try:
+            with os.fdopen(fd,'wb') as f:f.write(source);f.flush();os.fsync(f.fileno())
+            if target.is_symlink() or target.read_bytes()!=installed:sys.exit('Skill changed. Nothing replaced.')
+            os.replace(temp,target)
+        finally:Path(temp).unlink(missing_ok=True)
+    print('Owned Claude Code skill upgraded; MCP settings preserved. Restart the client.')
+    sys.exit(0)
 if a.action=='install':servers['growth_brain']=owned;data['mcpServers']=servers
 else:
     servers.pop('growth_brain',None)

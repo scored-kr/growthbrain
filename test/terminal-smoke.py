@@ -41,6 +41,13 @@ with tempfile.TemporaryDirectory(prefix='gb-terminal-') as directory:
         until('Project name: ');send('Terminal synthetic project')
         result=until('growth-brain> ')
         project=re.search(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}",result).group()
+        send('route-set');until('Selected project UUID: ');send(project)
+        until('Explicit trigger keywords, separated by commas: ');send('synthetic-route, 테스트경로')
+        until('Enter to cancel: ');send('ROUTE')
+        result=until('growth-brain> ');assert 'synthetic-route' in result
+        send('route-clear');until('Selected project UUID: ');send(project)
+        until('Enter to cancel: ');send('ROUTE')
+        result=until('growth-brain> ');assert 'keywords: []' in result
         send('agent-bind');until('Client (codex or claude-code): ');send('codex')
         until('Exact workspace directory: ');send(directory)
         until('Selected project UUID: ');send(project)
@@ -77,7 +84,7 @@ with tempfile.TemporaryDirectory(prefix='gb-terminal-') as directory:
         assert child.wait(timeout=10)==0
         assert not Path(directory,'vault.json').exists()
         assert password not in transcript, 'Passphrase appeared in terminal output'
-        print(json.dumps({'terminal_init_unlock_consent_agent_bind_stop_propose_correct_review_retire_delete': 'passed', 'secret_echo': False}))
+        print(json.dumps({'terminal_init_unlock_consent_routes_agent_bind_stop_propose_correct_review_retire_delete': 'passed', 'secret_echo': False}))
     finally:
         if child.poll() is None:
             child.terminate();child.wait(timeout=10)

@@ -38,6 +38,14 @@ test('real stdio MCP transport retrieves scoped memory, records candidates, deni
     return {raw:r,value:JSON.parse(r.content[0].text)};
   };
   const first=await invoke('get_context',{projectId:project.id});
+  const root=await invoke('get_context',{});
+  assert.deepEqual(root.value.searchedScopes,['global']);assert.equal(root.value.projectId,null);
+  assert.deepEqual(root.value.conditions.map(m=>m.key).sort(),['language','tone']);
+  await vault.mutate(e=>e.configureProjectTriggers(project.id,['테스트캠페인']));
+  const routed=await invoke('get_context',{query:'테스트캠페인의 다음 작업'});
+  assert.equal(routed.value.projectId,project.id);assert.equal(routed.value.routing.reason,'configured_trigger');
+  const rootSearch=await invoke('search_memory',{query:'언어'});
+  assert.equal(rootSearch.value.matches[0].value,'한국어');assert.deepEqual(rootSearch.value.searchedScopes,['global']);
   assert.ok(!first.raw.isError);
   assert.equal(first.value.conditions.find(x=>x.key==='language').value,'한국어');
   assert.equal(first.value.conditions.find(x=>x.key==='tone').value,'과장 없는 전문적인 어조');
@@ -60,7 +68,8 @@ test('real stdio MCP transport retrieves scoped memory, records candidates, deni
   for(const query of ['전문적인','친근하게','무료 상담','이번에는','OTHER_PROJECT_SECRET']) {
     const search=await invoke('search_memory',{projectId:project.id,query,requestConditions});
     assert.ok(!search.raw.isError);
-    assert.deepEqual(search.value,{matches:[],omittedCount:0});
+    assert.deepEqual(search.value.matches,[]);assert.equal(search.value.omittedCount,0);
+    assert.deepEqual(search.value.searchedScopes,['global',`project:${project.id}`]);
   }
   assert.equal((await invoke('search_memory',{projectId:project.id,query:'한국어',requestConditions})).value.matches.length,1);
   assert.equal((await invoke('search_memory',{projectId:project.id,query:'전문적인'})).value.matches.length,1);

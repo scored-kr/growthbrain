@@ -43,8 +43,8 @@ export async function startBroker(vault: VaultSession, directory: string) {
         if (!parsed.success) { socket.end(JSON.stringify({ error: 'INVALID_REQUEST' }) + '\n'); return; }
         const { method, params } = parsed.data;
         let result: unknown;
-        if (method === 'get_context') result = vault.read(e => e.getContext(params));
-        else if (method === 'search_memory') result = vault.read(e => e.search(params.projectId, params.query, params.limit, params.requestConditions));
+        if (method === 'get_context') result = vault.getContext(params);
+        else if (method === 'search_memory') result = vault.search(params.projectId, params.query, params.limit, params.requestConditions);
         else if(method==='propose_memory')result = await vault.mutate(e => e.propose(params));
         else if(method==='list_projects')result=vault.read(e=>({projects:e.snapshot().projects,settings:e.snapshot().captureSettings}));
         else if(method==='configure_capture')result=await vault.mutate(e=>e.configureCapture(params));

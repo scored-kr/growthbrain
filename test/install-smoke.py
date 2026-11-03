@@ -61,12 +61,13 @@ elif a[0]=='remove':s.pop(name,None);p.write_text(json.dumps(s))
 
     def test_explicit_upgrade_of_shipped_skill_preserves_mcp_and_is_idempotent(self):
         self.succeed('install')
-        self.target.write_bytes(self.legacy)
-        self.refused_without_changes('install')
         config=self.state.read_bytes()
-        self.succeed('upgrade');self.succeed('upgrade')
-        self.assertEqual(self.target.read_bytes(),self.source)
-        self.assertEqual(self.state.read_bytes(),config)
+        for version in [self.legacy,Path('test/fixtures/codex-skill-v2.md').read_bytes()]:
+            self.target.write_bytes(version)
+            self.refused_without_changes('install')
+            self.succeed('upgrade');self.succeed('upgrade')
+            self.assertEqual(self.target.read_bytes(),self.source)
+            self.assertEqual(self.state.read_bytes(),config)
         self.assertEqual(list(self.skill.iterdir()),[self.target])
         self.succeed('remove')
 
