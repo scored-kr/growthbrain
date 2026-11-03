@@ -2,12 +2,12 @@ import { createServer, createConnection, type Server } from 'node:net';
 import { chmod, lstat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { captureInputSchema, consentSchema, contextSchema, identifier, proposalSchema } from './model.js';
+import { captureInputSchema, consentSchema, contextSchema, identifier, proposalSchema, searchSchema } from './model.js';
 import { privateDirectory, type VaultSession } from './vault.js';
 
 const requestSchema = z.discriminatedUnion('method', [
   z.object({ method: z.literal('get_context'), params: contextSchema }).strict(),
-  z.object({ method: z.literal('search_memory'), params: z.object({ projectId: identifier, query: z.string().trim().min(1).max(200), limit: z.number().int().min(1).max(50).default(20) }).strict() }).strict(),
+  z.object({ method: z.literal('search_memory'), params: searchSchema }).strict(),
   z.object({ method: z.literal('propose_memory'), params: proposalSchema }).strict(),
   // Local native-messaging/UI operations; these are never registered as MCP tools.
   z.object({method:z.literal('list_projects'),params:z.object({}).strict()}).strict(),
@@ -42,7 +42,7 @@ export async function startBroker(vault: VaultSession, directory: string) {
         const { method, params } = parsed.data;
         let result: unknown;
         if (method === 'get_context') result = vault.read(e => e.getContext(params));
-        else if (method === 'search_memory') result = vault.read(e => e.search(params.projectId, params.query, params.limit));
+        else if (method === 'search_memory') result = vault.read(e => e.search(params.projectId, params.query, params.limit, params.requestConditions));
         else if(method==='propose_memory')result = await vault.mutate(e => e.propose(params));
         else if(method==='list_projects')result=vault.read(e=>({projects:e.snapshot().projects,settings:e.snapshot().captureSettings}));
         else if(method==='configure_capture')result=await vault.mutate(e=>e.configureCapture(params));

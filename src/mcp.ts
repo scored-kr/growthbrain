@@ -2,8 +2,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { z } from 'zod';
-import { contextSchema, identifier, proposalSchema } from './model.js';
+import { contextSchema, proposalSchema, searchSchema } from './model.js';
 import { callBroker, safeError } from './broker.js';
 
 const socket = process.env.GROWTH_BRAIN_SOCKET ?? join(homedir(), '.local', 'share', 'growth-brain', 'memory.sock');
@@ -18,8 +17,8 @@ server.registerTool('get_context', {
   annotations: { readOnlyHint: true, openWorldHint: false },
 }, handle('get_context'));
 server.registerTool('search_memory', {
-  description: 'Search effective approved memories for the selected project and common preferences locally. Excludes candidates, rejected/superseded records and overridden defaults.',
-  inputSchema: z.object({ projectId: identifier, query: z.string().trim().min(1).max(200), limit: z.number().int().min(1).max(50).default(20) }).strict(),
+  description: 'Search effective approved memories for the selected project and common preferences locally. Pass the same explicit current requestConditions as get_context on every follow-up search. Excludes candidates, rejected/superseded/retired records and conditions overridden by the project or current request. Overrides are ephemeral and are not returned as approved memories. Report omittedCount when nonzero.',
+  inputSchema: searchSchema,
   annotations: { readOnlyHint: true, openWorldHint: false },
 }, handle('search_memory'));
 server.registerTool('propose_memory', {

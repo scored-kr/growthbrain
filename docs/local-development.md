@@ -52,11 +52,15 @@ npm run vault -- restore /absolute/new-vault-directory /absolute/private-directo
 
 - `get_context(projectId, requestConditions?, maxCharacters?)`: 승인된 공통/프로젝트 조건의
   유효한 뷰. 현재 명시 요청을 일회성으로 우선 적용한다. 생략 시 `omittedCount`를 반환한다.
-- `search_memory(projectId, query, limit?)`: 유효한 범위의 로컬 키워드 검색. `matches`와
-  응답 크기/개수 제한으로 생략된 `omittedCount`를 반환한다.
+- `search_memory(projectId, query, limit?, requestConditions?)`: 유효한 범위의 로컬 키워드 검색.
+  추가 검색마다 `get_context`와 같은 현재 명시 요청 조건을 전달한다. 그 조건으로 덮어쓴
+  저장 기억은 제외하며 현재 요청을 확정 기억으로 저장하거나 검색 결과에 추가하지 않는다.
+  `matches`와 응답 크기/개수 제한으로 생략된 `omittedCount`를 반환한다.
 - `propose_memory(scope, kind, key, value, source, reason, supersedesId?)`: 후보만 저장.
 
 도구에 승인·비밀번호·복구 키·로그인 기능은 없다. 잠금 상태는 `VAULT_LOCKED`로 거부한다.
+조회·검색은 앞선 호출의 일회성 조건을 기억하지 않는다. `requestConditions`는 최대 50개이며
+생략하면 저장된 프로젝트/공통 조건만 적용한다. 이 규칙은 다른 세션으로 조건이 섞이는 것을 막는다.
 AI가 조립한 현재 요청이나 기억의 의미를 암호화가 검증하지는 않는다. 범위·출처를 사용자가
 검토하고, 후보 승인과 실제 결과물 적용을 구분한다.
 

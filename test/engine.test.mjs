@@ -82,6 +82,44 @@ test('large matching results respect response budget and report omissions', () =
   assert.ok(Buffer.byteLength(JSON.stringify(result))<256*1024);
 });
 
+test('follow-up search preserves current request overrides without storing them as memories', () => {
+  const {engine,project,other}=fixture();const scope={type:'project',projectId:project.id};
+  approve(engine,proposal({type:'global'},'tone','friendly'));
+  approve(engine,proposal(scope,'tone','formal'));
+  approve(engine,proposal(scope,'cta','consultation'));
+  approve(engine,proposal(scope,'brand','unbudgeted-brand',{reason:'Synthetic provenance '.repeat(40)}));
+  approve(engine,proposal({type:'project',projectId:other.id},'brand','other-project-brand'));
+  engine.propose(proposal(scope,'pending','pending-brand'));
+  const before=engine.snapshot();
+  const requestConditions={tone:'concise',cta:'no call to action',new_condition:'session only'};
+  const context=engine.getContext({projectId:project.id,requestConditions,maxCharacters:512});
+  assert.ok(context.omittedCount>0);
+  assert.deepEqual(engine.search(project.id,'formal',20,requestConditions).matches,[]);
+  assert.deepEqual(engine.search(project.id,'friendly',20,requestConditions).matches,[]);
+  assert.deepEqual(engine.search(project.id,'consultation',20,requestConditions).matches,[]);
+  assert.deepEqual(engine.search(project.id,'session only',20,requestConditions).matches,[]);
+  const found=engine.search(project.id,'brand',20,requestConditions);
+  assert.deepEqual(found.matches.map(m=>m.value),['unbudgeted-brand']);
+  assert.equal(found.omittedCount,0);
+  assert.deepEqual(engine.snapshot(),before);
+  assert.equal(engine.search(project.id,'formal').matches.length,1);
+  assert.equal(engine.getContext({projectId:project.id}).conditions.find(c=>c.key==='tone').value,'formal');
+});
+
+test('search validates and bounds ephemeral conditions and counts only applicable omissions', () => {
+  const {engine,project}=fixture();
+  for(let i=0;i<4;i++)approve(engine,proposal({type:'global'},`match_${i}`,'matching memory'));
+  const result=engine.search(project.id,'matching',1,{match_0:'overridden'});
+  assert.equal(result.matches.length,1);
+  assert.notEqual(result.matches[0].key,'match_0');
+  assert.equal(result.omittedCount,2);
+  const conditions=Object.fromEntries(Array.from({length:51},(_,i)=>[`key_${i}`,'value']));
+  assert.throws(()=>engine.search(project.id,'matching',20,conditions),/REQUEST_CONDITION_LIMIT/);
+  for(const invalid of [null,[],{'bad key':'value'},{tone:''},{tone:'x'.repeat(4001)}]) {
+    assert.throws(()=>engine.search(project.id,'matching',20,invalid));
+  }
+});
+
 test('restored state rejects duplicate IDs, orphan projects, ambiguous active records and cycles',()=>{
   const {engine,project}=fixture();const scope={type:'project',projectId:project.id};
   const a=approve(engine,proposal(scope,'tone','one'));

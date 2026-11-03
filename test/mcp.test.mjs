@@ -55,9 +55,25 @@ test('real stdio MCP transport retrieves scoped memory, records candidates, deni
   assert.equal((await invoke('search_memory',{projectId:project.id,query:'CANDIDATE_ONLY'})).value.matches.length,1);
   const override=await invoke('get_context',{projectId:project.id,requestConditions:{tone:'이번에는 짧게'}});
   assert.equal(override.value.conditions.find(x=>x.key==='tone').value,'이번에는 짧게');
+  const persisted=await readFile(join(directory,'vault.json'),'utf8');
+  const requestConditions={tone:'이번에는 짧게',cta:'이번에는 안내만'};
+  for(const query of ['전문적인','친근하게','무료 상담','이번에는','OTHER_PROJECT_SECRET']) {
+    const search=await invoke('search_memory',{projectId:project.id,query,requestConditions});
+    assert.ok(!search.raw.isError);
+    assert.deepEqual(search.value,{matches:[],omittedCount:0});
+  }
+  assert.equal((await invoke('search_memory',{projectId:project.id,query:'한국어',requestConditions})).value.matches.length,1);
+  assert.equal((await invoke('search_memory',{projectId:project.id,query:'전문적인'})).value.matches.length,1);
+  const excessive=Object.fromEntries(Array.from({length:51},(_,i)=>[`key_${i}`,'synthetic override']));
+  const rejectedOverride=await invoke('search_memory',{projectId:project.id,query:'한국어',requestConditions:excessive});
+  assert.equal(rejectedOverride.raw.isError,true);
+  assert.equal(rejectedOverride.value.error,'REQUEST_CONDITION_LIMIT');
+  assert.equal(await readFile(join(directory,'vault.json'),'utf8'),persisted);
   assert.ok(!(await readFile(join(directory,'vault.json'),'utf8')).includes('CANDIDATE_ONLY'));
   await vault.close();
   const locked=await invoke('get_context',{projectId:project.id});
   assert.equal(locked.raw.isError,true);assert.equal(locked.value.error,'VAULT_LOCKED');
+  const lockedSearch=await invoke('search_memory',{projectId:project.id,query:'한국어',requestConditions});
+  assert.equal(lockedSearch.raw.isError,true);assert.equal(lockedSearch.value.error,'VAULT_LOCKED');
   assert.ok(!stderr.includes(password));assert.ok(!stderr.includes('CANDIDATE_ONLY'));
 });
