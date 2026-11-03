@@ -41,7 +41,18 @@ export async function dispatch(message,sender){
     return await native('capture',{site,projectId:state.projectId,url:canonical(url.href),messageId:m.messageId,role:m.role,text:m.text});
   }
   if(sender.id!==chrome.runtime.id||sender.url!==popupUrl)throw Error('POPUP_REQUIRED');
-  if(message.type==='PROJECTS')return {...await native('list_projects',{}),local:await settings()};
+  if(message.type==='PROJECTS'){
+    const remote=await native('list_projects',{}),local=await settings();let reconciled=false;
+    for(const site of sites){
+      const selected=local[site],consent=remote.settings?.find(c=>c.site===site);
+      if(selected?.enabled&&(!consent?.enabled||consent.projectId!==selected.projectId)){
+        // Pause only this browser; never overwrite another device's explicit project selection.
+        revision(site);await setSite(site,{...selected,enabled:false});await notifyTabs(site,'GB_STOP');
+        await chrome.scripting.unregisterContentScripts({ids:[`growth-brain-${site.replace('.','-')}`]}).catch(()=>{});reconciled=true;
+      }
+    }
+    return {...remote,local:await settings(),reconciled};
+  }
   if(message.type==='ENABLE'){
     if(!sites.includes(message.site))throw Error('INVALID_SITE');
     const token=revision(message.site);

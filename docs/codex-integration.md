@@ -59,5 +59,7 @@ GROWTH_BRAIN_TEST_OUTPUT=/absolute/private-output-directory npm run test:codex
 현재 안전한 Codex 로그인 세션을 복구한 뒤 동일 시험을 재실행해야 한다. 인증 토큰을
 채팅·MCP·저장소에 넣거나 기존 인증 파일 내용을 추출하지 않는다.
 
-Claude Code, ChatGPT/Claude 웹사이트와 Chrome 확장 연결은 아직 구현·실검증하지 않았다.
-첫 지원 클라이언트의 전체 흐름을 통과한 후 확장한다.
+Claude Code는 아직 구현·실검증하지 않았다. Chrome 수집 연결은 후속 챕터에서 구현했고
+native 프로토콜·합성 DOM/UI를 검사했으나 관리 정책 때문에 실제 확장 설치 검증은 차단됐다.
+실제 ChatGPT/Claude 로그인 사이트도 미검증이다. [챕터 기록](chapter-progress.md)을 참고한다.
+첫 지원 AI 클라이언트의 전체 흐름을 통과한 후 Claude Code 지원을 확장한다.

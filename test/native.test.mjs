@@ -7,6 +7,8 @@ import { tmpdir } from 'node:os';
 import { join,resolve } from 'node:path';
 import { VaultSession } from '../dist/vault.js';
 import { startBroker } from '../dist/broker.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 test('real native frames collect and review only with explicit site consent; origin and methods are restricted',async()=>{
   const directory=await mkdtemp(join(tmpdir(),'gb-native-'));const id='a'.repeat(32);
@@ -40,6 +42,15 @@ test('real native frames collect and review only with explicit site consent; ori
     assert.equal((await call('review_memory',{projectId:project.id,id:edited.candidateIds[0],decision:'approve'})).error,'EXPLICIT_SUPERSESSION_REQUIRED');
     await call('review_memory',{projectId:project.id,id:edited.candidateIds[0],decision:'approve',supersedesId:capture.candidateIds[0]});
     assert.equal(vault.read(e=>e.getContext({projectId:project.id})).conditions[0].value,'English');
+    // A new, separate MCP process reads the same approved result written via native messaging.
+    const client=new Client({name:'native-to-mcp-protocol-check',version:'1.0.0'});
+    try{
+      await client.connect(new StdioClientTransport({command:process.execPath,args:[resolve('dist/mcp.js')],env:{GROWTH_BRAIN_SOCKET:broker.path},stderr:'pipe'}));
+      const result=await client.callTool({name:'get_context',arguments:{projectId:project.id}});
+      assert.ok(!result.isError);
+      const context=JSON.parse(result.content[0].text);assert.equal(context.conditions[0].value,'English');
+      assert.equal(context.conditions[0].supersedesId,capture.candidateIds[0]);
+    }finally{await client.close()}
     await vault.close();assert.equal((await call('list_projects',{})).error,'VAULT_LOCKED');
   }finally{await broker.close();await vault.close();await rm(directory,{recursive:true,force:true});}
 });

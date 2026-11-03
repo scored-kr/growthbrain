@@ -39,3 +39,11 @@ test('stop wins over an in-flight enable and simultaneous site settings preserve
  assert.equal(h.state.sites['chatgpt.com'].enabled,false);assert.equal(h.state.sites['claude.ai'].enabled,true);
  const actions=h.calls.filter(c=>c.params.site==='chatgpt.com');assert.equal(actions.at(-1).params.enabled,false);
 });
+test('changed vault consent pauses stale browser state without rewriting the other selection',async()=>{
+ const h=await harness(async request=>({result:request.method==='list_projects'?{projects:[],settings:[{site:'chatgpt.com',projectId:randomUUID(),enabled:true}]}:{}}));
+ await h.dispatch({type:'ENABLE',site:'chatgpt.com',projectId:randomUUID()},h.popup);
+ const count=h.calls.filter(c=>c.method==='configure_capture').length;
+ const state=await h.dispatch({type:'PROJECTS'},h.popup);
+ assert.equal(state.reconciled,true);assert.equal(state.local['chatgpt.com'].enabled,false);
+ assert.equal(h.calls.filter(c=>c.method==='configure_capture').length,count);
+});

@@ -4,8 +4,9 @@
 제품의 핵심은 사용자 기기에서 해독·검색하는 **Growth Brain MCP**입니다.
 **ign8t MCP**는 개발 명세와 작업 보드를 관리하며 제품 MCP와 역할이 다릅니다.
 
-현재 로컬 암호화 금고, 공통/프로젝트 기억 엔진, stdio 제품 MCP를 복구했습니다.
-MVP 전체 완료를 의미하지 않습니다. 실제 클라이언트·동기화·확장 검증 상태는 아래 기록을 확인하세요.
+현재 로컬 암호화 금고·백업/복원, 공통/프로젝트 기억 엔진, stdio 제품 MCP와 동의 기반
+Chrome 수집·검토 구현이 있습니다. MVP 전체 완료를 의미하지 않습니다.
+실제 AI 클라이언트·Supabase·설치된 확장 전체 검증의 차단 상태는 아래 기록을 확인하세요.
 
 - [최신 요구사항 및 합격 기준](docs/requirements-2026-11-03.md)
 - [복구 상태 및 다음 작업](docs/recovery-status.md)
@@ -13,6 +14,10 @@ MVP 전체 완료를 의미하지 않습니다. 실제 클라이언트·동기�
 - [로컬 실행 및 보호 범위](docs/local-development.md)
 - [Codex 설치·해제](docs/codex-integration.md)
 - [실제 검증 범위와 남은 제한](docs/validation-2026-11-03.md)
+- [보드 기반 구현 스펙](docs/implementation-spec.md)
+- [Chrome 수집·검토 설치](docs/chrome-integration.md)
+- [챕터별 진행·커밋 기록](docs/chapter-progress.md)
+- [커밋으로 되돌리는 방법](docs/commit-and-recovery.md)
 
 Node.js 24 이상에서 `npm ci`, `npm test`로 설치·검증합니다.
 

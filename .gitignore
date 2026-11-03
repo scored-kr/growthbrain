@@ -22,3 +22,8 @@ data/
 vaults/
 *.sqlite
 *.sqlite-*
+vault.json
+vault.lock
+memory.sock
+*.enc
+.save-*

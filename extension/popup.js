@@ -8,7 +8,7 @@ async function loadProjects(){
   const result=await send({type:'PROJECTS'});local=result.local;const selected=$('project').value||local[$('site').value]?.projectId;
   $('project').replaceChildren(new Option('선택하세요',''));
   for(const p of result.projects)$('project').append(new Option(p.name,p.id));
-  $('project').value=selected??'';state();status('로컬 금고 연결됨');await memories();
+  $('project').value=selected??'';state();status(result.reconciled?'금고의 동의/프로젝트 설정이 변경되어 이 브라우저 수집을 중지했습니다.':'로컬 금고 연결됨');await memories();
 }
 async function memories(offset=0){
   if(!offset)$('memories').replaceChildren();$('more').hidden=true;
