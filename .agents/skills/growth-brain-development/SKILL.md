@@ -13,5 +13,7 @@ Routes:
 - Changes and regressions: Trail of Bits differential review / property-based testing. Generated tests need independent oracles and repeatable seeds, not copies of implementation.
 - Tool contracts and rendered review UI: Anthropic MCP builder / webapp testing. Preserve current SDK unless a separately justified migration is needed. Test actual transport and Chromium fixtures; label live client gaps.
 - Actual user benefit: product-on-purpose experiment design. Development corpus results are not user experiments or general accuracy guarantees.
+- Product viability: read .agents/startup-context.md; apply phuryn startup-canvas/strategy-red-team, shawnpang accelerator-application/mvp-scoping, and mfwarren fundraising/unit-economics. Separate real interviews, synthetic personas, observed use and payment. These are review lenses, not real investor endorsements. Do not invent traction or run outreach.
+- Security usability: Trail of Bits sharp-edges with applicable crypto/auth/config/JavaScript/Python references. Reproduce lock, deletion and consent lifecycle failures; known OS trust is not a remote exploit.
 
 Do not run vendored scripts automatically, install runtime dependencies from their examples, upload private memories, change production services or weaken consent for a review. No embedding/cloud model dependency is implied. Respect already given user authorization; do not re-ask settled deployment/security questions.
