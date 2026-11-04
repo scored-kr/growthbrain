@@ -5,6 +5,7 @@ import { chmod, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startBroker, callBroker, safeError } from '../dist/broker.js';
+import { setTimeout as delay } from 'node:timers/promises';
 
 async function directory(t) {
   const path = await mkdtemp(join(tmpdir(), 'gb-protocol-'));
@@ -21,6 +22,24 @@ function rawRequest(path, input) {
     socket.on('error', reject);
   });
 }
+test('broker shutdown disconnects partial requests before they can read and is idempotent', async t => {
+  const path = await directory(t); let reads = 0; let closing;
+  const broker = await startBroker({ getContext() { reads++; return { private: 'SYNTHETIC_LOCKED_CONTEXT' }; } }, path);
+  const socket = createConnection(broker.path); let received = '';
+  socket.on('error', () => {}); socket.on('data', chunk => { received += chunk; });
+  t.after(async () => { socket.destroy(); await (closing ?? broker.close()); });
+  await new Promise(resolve => socket.once('connect', resolve));
+  socket.write('{"method":"get_context","params":{}}');
+  await delay(30);
+  closing = broker.close();
+  // A connected peer completes an old partial request after shutdown begins.
+  await delay(30); if (!socket.destroyed) socket.write('\n');
+  assert.equal(await Promise.race([closing.then(() => 'closed'), delay(500).then(() => 'stalled')]), 'closed');
+  assert.equal(reads, 0, 'a request completed after shutdown must not reach the vault');
+  assert.ok(!received.includes('SYNTHETIC_LOCKED_CONTEXT'));
+  await broker.close();
+  await assert.rejects(callBroker(broker.path, 'get_context', {}), /VAULT_LOCKED/);
+});
 test('broker rejects malformed and oversized frames without dispatch and bounds responses', async t => {
   const path = await directory(t); let reads = 0;
   const broker = await startBroker({ getContext() { reads++; return { payload: 'x'.repeat(270000) }; } }, path);

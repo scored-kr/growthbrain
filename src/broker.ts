@@ -1,4 +1,4 @@
-import { createServer, createConnection, type Server } from 'node:net';
+import { createServer, createConnection, type Socket } from 'node:net';
 import { chmod, lstat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -38,12 +38,18 @@ export function errorNextAction(code: string): string {
 export async function startBroker(vault: VaultSession, directory: string) {
   await privateDirectory(directory);
   const path = join(directory, 'memory.sock');
+  const sockets = new Set<Socket>();
+  let closing = false;
+  let closePromise: Promise<void> | undefined;
   const server = createServer(socket => {
+    if (closing) { socket.destroy(); return; }
+    sockets.add(socket);
+    socket.once('close', () => sockets.delete(socket));
     let buffer = Buffer.alloc(0); let handled = false;
     socket.setTimeout(5000, () => socket.destroy());
     socket.on('error', () => {});
     socket.on('data', chunk => {
-      if (handled) return;
+      if (handled || closing) return;
       if (buffer.length + chunk.length > MAX_REQUEST) { handled = true; socket.end(JSON.stringify({ error: 'REQUEST_TOO_LARGE' }) + '\n'); return; }
       buffer = Buffer.concat([buffer, chunk]);
       const end = buffer.indexOf(10);
@@ -79,9 +85,15 @@ export async function startBroker(vault: VaultSession, directory: string) {
   await chmod(path, 0o600);
   return {
     path,
-    async close() {
-      await new Promise<void>((resolve, reject) => server.close(e => e ? reject(e) : resolve()));
-      await unlink(path).catch(e => { if (e.code !== 'ENOENT') throw e; });
+    close() {
+      if (closePromise) return closePromise;
+      closing = true;
+      closePromise = new Promise<void>((resolve, reject) => {
+        server.close(e => e ? reject(e) : resolve());
+        // Idle/partial peers must not prolong an unlocked session or complete a late request.
+        for (const socket of sockets) socket.destroy();
+      }).then(async () => { await unlink(path).catch(e => { if (e.code !== 'ENOENT') throw e; }); });
+      return closePromise;
     },
   };
 }

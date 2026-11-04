@@ -39,7 +39,18 @@ async function hidden(question: string): Promise<string> {
 let vault: VaultSession | undefined;
 let broker: Awaited<ReturnType<typeof startBroker>> | undefined;
 let input: ReturnType<typeof createInterface> | undefined;
-async function close() { input?.close(); await broker?.close(); await vault?.close(); }
+let closePromise: Promise<void> | undefined;
+function close() {
+  if (closePromise) return closePromise;
+  input?.close();
+  // Mark the vault closed to new reads/writes synchronously, then drain accepted writes
+  // and disconnect peers. Always finish both cleanups, including on an error/signal.
+  closePromise = Promise.allSettled([vault?.close(), broker?.close()]).then(results => {
+    const failed = results.find(result => result.status === 'rejected');
+    if (failed?.status === 'rejected') throw failed.reason;
+  });
+  return closePromise;
+}
 try {
   const ownerId = command === 'init' ? randomUUID() : JSON.parse(await readFile(restoring?resolve(extra[0]!):join(directory, 'vault.json'), 'utf8')).ownerId;
   let recoveryFile = '';
