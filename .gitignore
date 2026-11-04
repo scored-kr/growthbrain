@@ -28,3 +28,7 @@ vault.lock
 memory.sock
 *.enc
 .save-*
+
+# Python development helpers
+__pycache__/
+*.pyc

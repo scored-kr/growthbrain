@@ -1,0 +1,557 @@
+{
+  "version": 1,
+  "selectedAt": "2026-11-04",
+  "skills": [
+    {
+      "repo": "openai/skills",
+      "path": "skills/.curated/security-best-practices",
+      "ref": "49f948faa9258a0c61caceaf225e179651397431"
+    },
+    {
+      "repo": "openai/skills",
+      "path": "skills/.curated/security-threat-model",
+      "ref": "49f948faa9258a0c61caceaf225e179651397431"
+    },
+    {
+      "repo": "anthropics/skills",
+      "path": "skills/mcp-builder",
+      "ref": "ca45fc496a3436251f191354091d557da31c15b5"
+    },
+    {
+      "repo": "anthropics/skills",
+      "path": "skills/webapp-testing",
+      "ref": "ca45fc496a3436251f191354091d557da31c15b5"
+    },
+    {
+      "repo": "trailofbits/skills",
+      "path": "plugins/property-based-testing/skills/property-based-testing",
+      "ref": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e"
+    },
+    {
+      "repo": "trailofbits/skills",
+      "path": "plugins/differential-review/skills/differential-review",
+      "ref": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/deliver-acceptance-criteria",
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/deliver-edge-cases",
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/measure-experiment-design",
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    }
+  ],
+  "files": [
+    {
+      "repo": "openai/skills",
+      "path": "skills/.curated/security-best-practices/LICENSE.txt",
+      "sha": "13e25df86ce06eb6488e6a6bc5c5847f5dedc352",
+      "size": 10776,
+      "ref": "49f948faa9258a0c61caceaf225e179651397431"
+    },
+    {
+      "repo": "openai/skills",
+      "path": "skills/.curated/security-best-practices/SKILL.md",
+      "sha": "45ccbd8d671c4c4cc3e7e0645a16a3f80ec50de7",
+      "size": 8612,
+      "ref": "49f948faa9258a0c61caceaf225e179651397431"
+    },
+    {
+      "repo": "openai/skills",
+      "path": "skills/.curated/security-best-practices/agents/openai.yaml",
+      "sha": "1721736a914e6ce41da2e0e005f6a8e782f2e642",
+      "size": 237,
+      "ref": "49f948faa9258a0c61caceaf225e179651397431"
+    },
+    {
+      "repo": "openai/skills",
+      "path": "skills/.curated/security-best-practices/references/golang-general-backend-security.md",
+      "sha": "85e9c6a1669e0d04af56c9a0bce113dd35e0248d",
+      "size": 38659,
+      "ref": "49f948faa9258a0c61caceaf225e179651397431"
+    },
+    {
+      "repo": "openai/skills",
+      "path": "skills/.curated/security-best-practices/references/javascript-express-web-server-security.md",
+      "sha": "98d79067ffb784ce426394193e744ddc7f3c93be",
+      "size": 49357,
+      "ref": "49f948faa9258a0c61caceaf225e179651397431"
+    },
+    {
+      "repo": "openai/skills",
+      "path": "skills/.curated/security-best-practices/references/javascript-general-web-frontend-security.md",
+      "sha": "d8b696f363ea54661791c048ba19a57933d20825",
+      "size": 38638,
+      "ref": "49f948faa9258a0c61caceaf225e179651397431"
+    },
+    {
+      "repo": "openai/skills",
+      "path": "skills/.curated/security-best-practices/references/javascript-jquery-web-frontend-security.md",
+      "sha": "3fd00db430ed55fafe50112b8d8b751fe82deec1",
+      "size": 33581,
+      "ref": "49f948faa9258a0c61caceaf225e179651397431"
+    },
+    {
+      "repo": "openai/skills",
+      "path": "skills/.curated/security-best-practices/references/javascript-typescript-nextjs-web-server-security.md",
+      "sha": "44cc8213b11feda2eac8283dfd6a11fe93a68965",
+      "size": 43423,
+      "ref": "49f948faa9258a0c61caceaf225e179651397431"
+    },
+    {
+      "repo": "openai/skills",
+      "path": "skills/.curated/security-best-practices/references/javascript-typescript-react-web-frontend-security.md",
+      "sha": "33fb693282a40754a081a499cda3d471aa23da28",
+      "size": 41686,
+      "ref": "49f948faa9258a0c61caceaf225e179651397431"
+    },
+    {
+      "repo": "openai/skills",
+      "path": "skills/.curated/security-best-practices/references/javascript-typescript-vue-web-frontend-security.md",
+      "sha": "be326548bf953b6d1918727d228449ab4cb5110d",
+      "size": 31445,
+      "ref": "49f948faa9258a0c61caceaf225e179651397431"
+    },
+    {
+      "repo": "openai/skills",
+      "path": "skills/.curated/security-best-practices/references/python-django-web-server-security.md",
+      "sha": "0b9a89a73e0ff3a88ccb7837b56ad1a5f15259e0",
+      "size": 38661,
+      "ref": "49f948faa9258a0c61caceaf225e179651397431"
+    },
+    {
+      "repo": "openai/skills",
+      "path": "skills/.curated/security-best-practices/references/python-fastapi-web-server-security.md",
+      "sha": "d394a55bb86b3b2e5c2b73e65cb115a2a0ce1c05",
+      "size": 44926,
+      "ref": "49f948faa9258a0c61caceaf225e179651397431"
+    },
+    {
+      "repo": "openai/skills",
+      "path": "skills/.curated/security-best-practices/references/python-flask-web-server-security.md",
+      "sha": "adbc599aad8688a3446f5b595a1f4f0c1eac942f",
+      "size": 31748,
+      "ref": "49f948faa9258a0c61caceaf225e179651397431"
+    },
+    {
+      "repo": "openai/skills",
+      "path": "skills/.curated/security-threat-model/LICENSE.txt",
+      "sha": "13e25df86ce06eb6488e6a6bc5c5847f5dedc352",
+      "size": 10776,
+      "ref": "49f948faa9258a0c61caceaf225e179651397431"
+    },
+    {
+      "repo": "openai/skills",
+      "path": "skills/.curated/security-threat-model/SKILL.md",
+      "sha": "abd3c1c95d49c4e0e0664f198f4bf168c6291aec",
+      "size": 5561,
+      "ref": "49f948faa9258a0c61caceaf225e179651397431"
+    },
+    {
+      "repo": "openai/skills",
+      "path": "skills/.curated/security-threat-model/agents/openai.yaml",
+      "sha": "d8b04e20a62688188f19bd396ae6b923841ddf8e",
+      "size": 254,
+      "ref": "49f948faa9258a0c61caceaf225e179651397431"
+    },
+    {
+      "repo": "openai/skills",
+      "path": "skills/.curated/security-threat-model/references/prompt-template.md",
+      "sha": "b6affb0d2f873ffe398f7a8df00095dc0ff01f59",
+      "size": 12642,
+      "ref": "49f948faa9258a0c61caceaf225e179651397431"
+    },
+    {
+      "repo": "openai/skills",
+      "path": "skills/.curated/security-threat-model/references/security-controls-and-assets.md",
+      "sha": "63d1455aeacfc97eaca4e371040dbadfbd791635",
+      "size": 1680,
+      "ref": "49f948faa9258a0c61caceaf225e179651397431"
+    },
+    {
+      "repo": "anthropics/skills",
+      "path": "skills/mcp-builder/LICENSE.txt",
+      "sha": "4f881c52d1f72f4cfb720e339e2d35c3058d01a9",
+      "size": 11345,
+      "ref": "ca45fc496a3436251f191354091d557da31c15b5"
+    },
+    {
+      "repo": "anthropics/skills",
+      "path": "skills/mcp-builder/SKILL.md",
+      "sha": "d61a9056202a0f8b2d064c896e62f415c45b1bf1",
+      "size": 11129,
+      "ref": "ca45fc496a3436251f191354091d557da31c15b5"
+    },
+    {
+      "repo": "anthropics/skills",
+      "path": "skills/mcp-builder/reference/evaluation.md",
+      "sha": "87e9bb78840fac113d93b4a27ab5b229a18cf226",
+      "size": 21663,
+      "ref": "ca45fc496a3436251f191354091d557da31c15b5"
+    },
+    {
+      "repo": "anthropics/skills",
+      "path": "skills/mcp-builder/reference/mcp_best_practices.md",
+      "sha": "b9d343cc3ae89b1fc139dae96bdb2b7e29ba3648",
+      "size": 7330,
+      "ref": "ca45fc496a3436251f191354091d557da31c15b5"
+    },
+    {
+      "repo": "anthropics/skills",
+      "path": "skills/mcp-builder/reference/node_mcp_server.md",
+      "sha": "738ec1fb8b1a41661b0bb5d32a26234a14c4e3f0",
+      "size": 28745,
+      "ref": "ca45fc496a3436251f191354091d557da31c15b5"
+    },
+    {
+      "repo": "anthropics/skills",
+      "path": "skills/mcp-builder/reference/node_mcp_server_v2.md",
+      "sha": "5d61f896d9707c8797c33ac8ac03c5aebf9b163f",
+      "size": 35171,
+      "ref": "ca45fc496a3436251f191354091d557da31c15b5"
+    },
+    {
+      "repo": "anthropics/skills",
+      "path": "skills/mcp-builder/reference/python_mcp_server.md",
+      "sha": "cf7ec996d2e6e3655bc75ff6902738d03a37334e",
+      "size": 25099,
+      "ref": "ca45fc496a3436251f191354091d557da31c15b5"
+    },
+    {
+      "repo": "anthropics/skills",
+      "path": "skills/mcp-builder/scripts/connections.py",
+      "sha": "ffcd0da3fbe1539320d022017ae83b61a9587a5c",
+      "size": 4875,
+      "ref": "ca45fc496a3436251f191354091d557da31c15b5"
+    },
+    {
+      "repo": "anthropics/skills",
+      "path": "skills/mcp-builder/scripts/evaluation.py",
+      "sha": "41778569c45a458e0eea839b8917692ad65be2d5",
+      "size": 12579,
+      "ref": "ca45fc496a3436251f191354091d557da31c15b5"
+    },
+    {
+      "repo": "anthropics/skills",
+      "path": "skills/mcp-builder/scripts/example_evaluation.xml",
+      "sha": "41e4459b5af861e61f1ca87d2f8f5ab5543dc054",
+      "size": 1194,
+      "ref": "ca45fc496a3436251f191354091d557da31c15b5"
+    },
+    {
+      "repo": "anthropics/skills",
+      "path": "skills/mcp-builder/scripts/requirements.txt",
+      "sha": "e73e5d1e356edafadb9dc9243e6f300f2c5529b3",
+      "size": 29,
+      "ref": "ca45fc496a3436251f191354091d557da31c15b5"
+    },
+    {
+      "repo": "anthropics/skills",
+      "path": "skills/webapp-testing/LICENSE.txt",
+      "sha": "4f881c52d1f72f4cfb720e339e2d35c3058d01a9",
+      "size": 11345,
+      "ref": "ca45fc496a3436251f191354091d557da31c15b5"
+    },
+    {
+      "repo": "anthropics/skills",
+      "path": "skills/webapp-testing/SKILL.md",
+      "sha": "4726215301db64a0cc4d41fc3219c61f37a30f4a",
+      "size": 3913,
+      "ref": "ca45fc496a3436251f191354091d557da31c15b5"
+    },
+    {
+      "repo": "anthropics/skills",
+      "path": "skills/webapp-testing/examples/console_logging.py",
+      "sha": "9329b5e232ed53d944bfe95e750070117d31b9ab",
+      "size": 1027,
+      "ref": "ca45fc496a3436251f191354091d557da31c15b5"
+    },
+    {
+      "repo": "anthropics/skills",
+      "path": "skills/webapp-testing/examples/element_discovery.py",
+      "sha": "917ba72f52421a1b324f93ae8e38af72010a87b9",
+      "size": 1463,
+      "ref": "ca45fc496a3436251f191354091d557da31c15b5"
+    },
+    {
+      "repo": "anthropics/skills",
+      "path": "skills/webapp-testing/examples/static_html_automation.py",
+      "sha": "90bbedcc08cdb345c74fb938ebad02c0baf56603",
+      "size": 953,
+      "ref": "ca45fc496a3436251f191354091d557da31c15b5"
+    },
+    {
+      "repo": "anthropics/skills",
+      "path": "skills/webapp-testing/scripts/with_server.py",
+      "sha": "431f2eba16b268b7f3e2ae4daae9db41c0289b6d",
+      "size": 3693,
+      "ref": "ca45fc496a3436251f191354091d557da31c15b5"
+    },
+    {
+      "repo": "trailofbits/skills",
+      "path": "plugins/property-based-testing/skills/property-based-testing/README.md",
+      "sha": "2c49678009a0e3e796a31dda185935497dec450a",
+      "size": 15332,
+      "ref": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e"
+    },
+    {
+      "repo": "trailofbits/skills",
+      "path": "plugins/property-based-testing/skills/property-based-testing/SKILL.md",
+      "sha": "1cc39d8d8cba5955bf9c8d7c9a2aef348722a55e",
+      "size": 4306,
+      "ref": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e"
+    },
+    {
+      "repo": "trailofbits/skills",
+      "path": "plugins/property-based-testing/skills/property-based-testing/agents/openai.yaml",
+      "sha": "fdde0c37ebd8f31ea34fd945a0c3b784d51defe7",
+      "size": 254,
+      "ref": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e"
+    },
+    {
+      "repo": "trailofbits/skills",
+      "path": "plugins/property-based-testing/skills/property-based-testing/assets/trail-of-bits-mark.svg",
+      "sha": "7cd6e7ca7348897984f2498f301a888bb2f3ca71",
+      "size": 3084,
+      "ref": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e"
+    },
+    {
+      "repo": "trailofbits/skills",
+      "path": "plugins/property-based-testing/skills/property-based-testing/references/generating.md",
+      "sha": "0133ccd27580a6f68d662807832de67cb1d91514",
+      "size": 2634,
+      "ref": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e"
+    },
+    {
+      "repo": "trailofbits/skills",
+      "path": "plugins/property-based-testing/skills/property-based-testing/references/interpreting-failures.md",
+      "sha": "10aeac48d239da352206b8c49f72ee776e5ca5be",
+      "size": 3426,
+      "ref": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e"
+    },
+    {
+      "repo": "trailofbits/skills",
+      "path": "plugins/property-based-testing/skills/property-based-testing/references/libraries.md",
+      "sha": "6b9964a46c014f5ecee78cd356fb0bdc4cbcd830",
+      "size": 2952,
+      "ref": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e"
+    },
+    {
+      "repo": "trailofbits/skills",
+      "path": "plugins/property-based-testing/skills/property-based-testing/references/refactoring.md",
+      "sha": "d4be7fb1fd4f00e53fde109254dd6dc937248011",
+      "size": 4854,
+      "ref": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e"
+    },
+    {
+      "repo": "trailofbits/skills",
+      "path": "plugins/property-based-testing/skills/property-based-testing/references/reviewing.md",
+      "sha": "a2ca783a7dabaece9e383f0ace972bb4fe2f7881",
+      "size": 2859,
+      "ref": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e"
+    },
+    {
+      "repo": "trailofbits/skills",
+      "path": "plugins/differential-review/skills/differential-review/SKILL.md",
+      "sha": "536e9258092876017b098f1712a92e7d06bb1480",
+      "size": 7439,
+      "ref": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e"
+    },
+    {
+      "repo": "trailofbits/skills",
+      "path": "plugins/differential-review/skills/differential-review/adversarial.md",
+      "sha": "0176d374bc2d9d59f114b647cb21f0685bc7e9f3",
+      "size": 5062,
+      "ref": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e"
+    },
+    {
+      "repo": "trailofbits/skills",
+      "path": "plugins/differential-review/skills/differential-review/agents/openai.yaml",
+      "sha": "ba287073f8a5f482350b8149cf55a7ce101b2d68",
+      "size": 245,
+      "ref": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e"
+    },
+    {
+      "repo": "trailofbits/skills",
+      "path": "plugins/differential-review/skills/differential-review/assets/trail-of-bits-mark.svg",
+      "sha": "7cd6e7ca7348897984f2498f301a888bb2f3ca71",
+      "size": 3084,
+      "ref": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e"
+    },
+    {
+      "repo": "trailofbits/skills",
+      "path": "plugins/differential-review/skills/differential-review/methodology.md",
+      "sha": "71d9dc0babf1417ee79ec8d5214ea690d0c2fe6b",
+      "size": 6738,
+      "ref": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e"
+    },
+    {
+      "repo": "trailofbits/skills",
+      "path": "plugins/differential-review/skills/differential-review/patterns.md",
+      "sha": "71078a725d986c90d014cceff0cc54414ad3b1a1",
+      "size": 6999,
+      "ref": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e"
+    },
+    {
+      "repo": "trailofbits/skills",
+      "path": "plugins/differential-review/skills/differential-review/reporting.md",
+      "sha": "cb5e37b4eab89c429bf6f968d3e3482adaa39faa",
+      "size": 7006,
+      "ref": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/deliver-acceptance-criteria/HISTORY.md",
+      "sha": "9684bd0900f7431b04219162fa38f06a6a227bcc",
+      "size": 2004,
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/deliver-acceptance-criteria/SKILL.md",
+      "sha": "e0a66211b938c752fbabe2db6b375b48b2c240e9",
+      "size": 4316,
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/deliver-acceptance-criteria/evals/output-scenarios/bulk-invite.md",
+      "sha": "b9bd2acc487e3746c78f48047ddc61bfec91feec",
+      "size": 1928,
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/deliver-acceptance-criteria/evals/trigger-fixtures.json",
+      "sha": "f2466fa37c0ea053fc908dda9410f766e9e03fea",
+      "size": 4344,
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/deliver-acceptance-criteria/references/EXAMPLE.md",
+      "sha": "50e19cc5ff36eefa51c391952d1a7b413ce28d22",
+      "size": 2855,
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/deliver-acceptance-criteria/references/TEMPLATE.md",
+      "sha": "71b58b4792506f136df3fa94bc23b7fc7f3533b4",
+      "size": 1668,
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/deliver-edge-cases/HISTORY.md",
+      "sha": "b8b433976c7c2b1c0703e1086ca7d1d2fe4cd892",
+      "size": 2081,
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/deliver-edge-cases/SKILL.md",
+      "sha": "01cfbbd15f5bd0d729e44cc1a837d09687983dc7",
+      "size": 4342,
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/deliver-edge-cases/evals/output-scenarios/file-upload.md",
+      "sha": "4c52d740be602d428e1163cc8c7395293fb8ff3f",
+      "size": 1907,
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/deliver-edge-cases/evals/trigger-fixtures.json",
+      "sha": "e2c6f72133b0e96196a950fe38c40c3e81d9f10c",
+      "size": 4374,
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/deliver-edge-cases/references/EXAMPLE.md",
+      "sha": "b9e99c594f5158c5048c42b39a624e4384d3f2b3",
+      "size": 7368,
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/deliver-edge-cases/references/TEMPLATE.md",
+      "sha": "0308fb0a8d8d50337031d671c05e750bf113371f",
+      "size": 3541,
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/measure-experiment-design/HISTORY.md",
+      "sha": "039ad397fd508060709d08eef506863ca1a5c3e3",
+      "size": 1161,
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/measure-experiment-design/SKILL.md",
+      "sha": "2cff99bad5fecc60708da904934515265934d827",
+      "size": 4329,
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/measure-experiment-design/evals/output-scenarios/onboarding-checklist.md",
+      "sha": "28e2b30eb654809052388e73dc7f81a7109373b4",
+      "size": 1817,
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/measure-experiment-design/evals/output-scenarios/paywall-pricing.md",
+      "sha": "ab9e33929dea5764ab9271d107b9497b4db9abd1",
+      "size": 2864,
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/measure-experiment-design/evals/trigger-fixtures.json",
+      "sha": "743678f32e18a07c32c73092b082abed6c879781",
+      "size": 4354,
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/measure-experiment-design/references/EXAMPLE.md",
+      "sha": "940073d627f3a125115d0ac9938b292d8d611e61",
+      "size": 7427,
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "skills/measure-experiment-design/references/TEMPLATE.md",
+      "sha": "a9554fbccd43b231beedabbf80cc5a9748fe03c1",
+      "size": 4437,
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    },
+    {
+      "repo": "trailofbits/skills",
+      "path": "LICENSE",
+      "sha": "3b7b82d0da2db857eda1a798dbd908ea136f07b5",
+      "size": 20131,
+      "ref": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e"
+    },
+    {
+      "repo": "product-on-purpose/pm-skills",
+      "path": "LICENSE",
+      "sha": "d4b693421cc16a1b7d55db8b8c2ad647902b090a",
+      "size": 10712,
+      "ref": "9b920db418c5bf641edea9afb4915a286e1d42ea"
+    }
+  ]
+}
