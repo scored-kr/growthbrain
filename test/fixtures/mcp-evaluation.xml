@@ -1,0 +1,12 @@
+<evaluation>
+  <qa_pair><question>오로라작업의 다음 제안을 준비한다. 공통 맥락과 해당 프로젝트를 조회하고 과거 할인 검색도 확인했을 때 현재 적용할 offer의 값은 무엇인가? 값만 답하라.</question><answer>새로운혜택</answer></qa_pair>
+  <qa_pair><question>프로젝트를 지정하지 않은 새 세션이다. 공통 맥락을 확인하고 언어 기억을 검색해 두 결과가 일치하는 기본 언어만 답하라.</question><answer>한국어</answer></qa_pair>
+  <qa_pair><question>오로라작업의 결과물을 작성한다. 공통 말투와 프로젝트 말투가 다를 때 맥락 우선순위와 검색 결과 모두에서 유효한 tone 값만 답하라.</question><answer>과장 없는 전문적인 문체</answer></qa_pair>
+  <qa_pair><question>오로라작업이지만 현재 요청은 tone을 짧게로 지정했다. 같은 요청조건을 맥락과 후속 검색 모두에 전달하고 저장된 어조가 다시 섞이지 않는지 확인하라. 이번에 적용할 tone 값만 답하라.</question><answer>짧게</answer></qa_pair>
+  <qa_pair><question>프로젝트를 선택하지 않았다. 공통 맥락과 예산 검색을 확인한 뒤 다른 프로젝트의 예산을 사용할 수 있는가? 사용할 예산이 없으면 조회되지 않음으로 답하라.</question><answer>조회되지 않음</answer></qa_pair>
+  <qa_pair><question>두 프로젝트가 공유하는 트리거 공동캠페인으로 새 작업을 요청했다. 맥락의 routing과 검색 범위를 확인했을 때 프로젝트를 임의로 합칠 수 있는가? 명시 선택이 필요하면 프로젝트 선택 필요로 답하라.</question><answer>프로젝트 선택 필요</answer></qa_pair>
+  <qa_pair><question>오로라작업의 비용 조건을 확인한다. 공통 맥락을 거친 뒤 선택 프로젝트의 예산을 검색하고 다른 프로젝트의 값과 혼합하지 말라. 유효 budget 값만 답하라.</question><answer>오백만원</answer></qa_pair>
+  <qa_pair><question>오로라작업에 미승인제안이라는 후보가 있다. 현재 맥락과 검색 모두에서 확인했을 때 작업 조건으로 쓸 수 있는가? 없으면 조회되지 않음으로 답하라.</question><answer>조회되지 않음</answer></qa_pair>
+  <qa_pair><question>오로라작업에서 사용 중지한 종료된사항을 다시 요구했다. 현재 맥락과 검색을 확인하고 사용할 수 없으면 조회되지 않음으로 답하라.</question><answer>조회되지 않음</answer></qa_pair>
+  <qa_pair><question>오로라작업의 과거 할인이 아닌 최신 혜택을 사용해야 한다. 맥락과 검색의 최신 offer가 일치함을 확인하고 그 결정의 source.reference만 답하라.</question><answer>synthetic:decision:new</answer></qa_pair>
+</evaluation>
