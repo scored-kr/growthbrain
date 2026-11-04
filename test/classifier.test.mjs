@@ -37,3 +37,17 @@ test('limits do not truncate exceptions, repeated clauses deduplicate and change
   const skipped=engine.capture({...input,messageId:'three',text:'이번에만 영어로 답변해줘'});
   assert.deepEqual(skipped.candidateIds,[]);assert.equal(engine.snapshot().captures.at(-1).text,'이번에만 영어로 답변해줘');
 });
+
+test('untyped continuation is never detached from the condition it qualifies',()=>{
+  for(const text of ['예산: 50만원\n부가세 포함이고 월 단위야.', '한국어로 답변해줘. 영어 원문은 그대로 유지해줘.', 'Budget: $500. That includes tax each month.', 'Tone: friendly\nAvoid jokes about customers.']) {
+    const result=classifyCapture(capture(text));
+    assert.equal(result.length,1,text);assert.match(result[0].key,/^feedback\./);
+    assert.equal(result[0].value,text);assert.equal(result[0].source.excerpt,text);
+  }
+  const qualifiers=['세금 포함','연간 한도야','최소 금액이야','프로모션은 제외','부가세 별도'];
+  for(const amount of [0,1,50,99999]) for(const joiner of ['\n','. ','; ','\r\n']) for(const suffix of qualifiers) {
+    const text=`예산: ${amount}만원${joiner}${suffix}`;
+    for(const candidate of classifyCapture(capture(text))) assert.ok(candidate.value.includes(suffix),text);
+  }
+  for(const text of ['예산: 50만원\n세금은 포함할까?', '예산: 50만원\n> 세금 포함', '예산: 50만원\n```\n세금 별도\n```', '예산: 50만원\n'+'x'.repeat(4001)]) assert.deepEqual(classifyCapture(capture(text)),[],text);
+});

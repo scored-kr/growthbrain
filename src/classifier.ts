@@ -10,6 +10,7 @@ const separateException=/(?:^|[\r\n]|[.!?。;]\s+)\s*(?:단|다만|하지만|예
 const questioning=/[?？]|^(?:왜|어떤|얼마|언제|어떻게|what\b|why\b|when\b|how\b)|(?:할까|될까|좋을까|어떨까|인가요|일까요|인거야|지\s*알려|지\s*설명)|\b(?:can|could|would|should)\s+(?:you|we|i)\b/i;
 const directive=/(?:해\s*줘|해\s*주세요|하지\s*마|하지\s*말|지\s*마|금지|제외해|유지해|정해|바꿔|선호해|진행하자|확정하자)|\b(?:please|prefer|keep|use|set|avoid|don't|do not)\b/i;
 const reusable=/앞으로|항상|선호|유지|금지|하지\s*(?:마|말)|제외|대신|\b(?:don't|do not|prefer|always|instead|keep)\b/i;
+const feedbackKey=(text:string)=>`feedback.${createHash('sha256').update(text).digest('hex').slice(0,16)}`;
 
 function explicitTopic(text:string):MemoryTopic|undefined {
   const colon=text.match(/^([^:：]{1,32})[:：]\s*(\S[\s\S]*)$/u);
@@ -29,27 +30,38 @@ export function classifyCapture(capture: Pick<Capture,'id'|'projectId'|'role'|'t
   const text=capture.text;
   if(uncertain.test(text)||transient.test(text)||reported.test(text)||separateException.test(text))return [];
   const plain=text.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g,'');
+  // A code/quote block can qualify surrounding prose. Do not save a detached partial rule.
+  if(plain!==text)return [];
   const clauses=plain.split(/(?<=[.!?。;])\s+|\r?\n/u).filter(s=>s.trim());
   if(clauses.length>32)return [];
-  const proposals:Proposal[]=[],seen=new Set<string>();
+  const proposals:Proposal[]=[],seen=new Set<string>();let hasUntypedClause=false;
   for(const clause of clauses) {
-    if(/^\s*(?:>|['"“‘`])|^ {4}/u.test(clause))continue;
+    if(/^\s*(?:>|['"“‘`])|^ {4}/u.test(clause))return [];
     const excerpt=clause.trim(),statement=excerpt.replace(/^(?:[-*•]|\d+[.)])\s+/u,'');
     // Never truncate away a trailing negation or exception just to fit a memory field.
-    if(excerpt.length>4000||questioning.test(statement))continue;
+    if(excerpt.length>4000||questioning.test(statement))return [];
     let key:string|undefined=explicitTopic(statement),value=statement;
     const korean=statement.match(/^(?:앞으로\s*)?(한국어|영어)로\s*(?:답변|작성)(?:해\s*줘|해\s*주세요)[.!\s]*$/u);
     const english=statement.match(/^(?:from now on,?\s*)?(?:please\s*)?(?:answer|respond|write)\s+in\s+(Korean|English)[.!\s]*$/i);
     const language=korean?.[1]??english?.[1];
     if(language){key='language';value=/한국어|korean/i.test(language)?'한국어':'English';}
     if(!key) {
+      hasUntypedClause=true;
       if(!directive.test(statement)||!reusable.test(statement))continue;
-      key=`feedback.${createHash('sha256').update(statement).digest('hex').slice(0,16)}`;
+      key=feedbackKey(statement);
     }
     const identity=JSON.stringify([key,value]);if(seen.has(identity))continue;seen.add(identity);
     proposals.push({scope:{type:'project',projectId:capture.projectId},kind:['language','tone','format'].includes(key)?'preference':key.startsWith('feedback.')?'feedback':'constraint',key,value,
       source:{kind:'capture',reference:`${referencePrefix}:${capture.id}`,excerpt},
       reason:'Locally extracted explicit user statement. Full capture retained; scope, interpretation and any replacement require human review.'});
+  }
+  if(clauses.length>1&&hasUntypedClause&&proposals.length) {
+    if(text.length>4000)return [];
+    // No semantic model can prove which clause an untyped continuation qualifies here.
+    // Keep one complete pending statement instead of promoting a partial typed condition.
+    return [{scope:{type:'project',projectId:capture.projectId},kind:'feedback',key:feedbackKey(text),value:text,
+      source:{kind:'capture',reference:`${referencePrefix}:${capture.id}`,excerpt:text},
+      reason:'Multiple clauses include an unclassified continuation. Preserved together for human review; no typed condition or replacement inferred.'}];
   }
   // Bound review noise without silently dropping later conflicting clauses.
   return proposals.length<=8?proposals:[];
