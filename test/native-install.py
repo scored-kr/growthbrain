@@ -1,9 +1,10 @@
+import sys
 import json,subprocess,tempfile
 from pathlib import Path
 with tempfile.TemporaryDirectory(prefix='gb-native-installer-') as directory:
  base=Path(directory);manifest=base/'manifests';launcher=base/'launcher'
  args=['--extension-id','a'*32,'--manifest-dir',str(manifest),'--launcher',str(launcher),'--socket',str(base/'memory.sock')]
- def run(action):return subprocess.run(['python','scripts/native-integration.py',action,*args],capture_output=True,text=True)
+ def run(action):return subprocess.run([sys.executable,'scripts/native-integration.py',action,*args],capture_output=True,text=True)
  assert run('install').returncode==0;assert run('install').returncode==0
  p=manifest/'com.growthbrain.local.json';data=json.loads(p.read_text());assert data['allowed_origins']==['chrome-extension://'+'a'*32+'/']
  unrelated=manifest/'other.json';unrelated.write_text('preserve')

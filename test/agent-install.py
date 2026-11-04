@@ -1,3 +1,4 @@
+import sys
 """Real filesystem/subprocess installer checks. Does not run either AI model."""
 import json
 from pathlib import Path
@@ -13,7 +14,7 @@ class AgentInstallerTest(unittest.TestCase):
                 other={'hooks':[{'type':'command','command':'user-owned-script','timeout':15}]}
                 original={'hooks':{'Stop':[other]},'permissions':{'allow':['existing']},'custom':'keep'}
                 config.write_text(json.dumps(original))
-                def run(action):return subprocess.run(['python','scripts/agent-hooks.py',action,'--client',client,'--config',str(config)],capture_output=True,text=True)
+                def run(action):return subprocess.run([sys.executable,'scripts/agent-hooks.py',action,'--client',client,'--config',str(config)],capture_output=True,text=True)
                 self.assertEqual(run('install').returncode,0);self.assertEqual(run('install').returncode,0)
                 data=json.loads(config.read_text());self.assertIn(other,data['hooks']['Stop']);self.assertEqual(len(data['hooks']['Stop']),2)
                 self.assertEqual(data['permissions'],original['permissions'])
@@ -28,7 +29,7 @@ class AgentInstallerTest(unittest.TestCase):
             base=Path(directory);config=base/'claude.json';skill=base/'skills/growth-brain'
             original={'mcpServers':{'other':{'command':'user-owned'}},'syntheticAuthMetadata':'preserve','projects':{'/existing':{'trust':True}}}
             config.write_text(json.dumps(original))
-            def run(action):return subprocess.run(['python','scripts/claude-integration.py',action,'--config',str(config),'--skill-dir',str(skill)],capture_output=True,text=True)
+            def run(action):return subprocess.run([sys.executable,'scripts/claude-integration.py',action,'--config',str(config),'--skill-dir',str(skill)],capture_output=True,text=True)
             self.assertEqual(run('install').returncode,0);self.assertEqual(run('install').returncode,0)
             saved=(skill/'SKILL.md').read_bytes();(skill/'SKILL.md').write_text('User edited')
             before=config.read_bytes();self.assertNotEqual(run('remove').returncode,0);self.assertNotEqual(run('upgrade').returncode,0);self.assertEqual(config.read_bytes(),before)

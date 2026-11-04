@@ -1,3 +1,4 @@
+import sys
 """Installer ownership/idempotence checks with a fake CLI; not actual Codex connection evidence."""
 import json
 import os
@@ -37,7 +38,7 @@ elif a[0]=='remove':s.pop(name,None);p.write_text(json.dumps(s))
         self.legacy=Path('test/fixtures/codex-skill-v1.md').read_bytes()
 
     def invoke(self,action):
-        return subprocess.run(['python','scripts/codex-integration.py',action,'--codex',str(self.client),'--skill-dir',str(self.skill)],env=self.env,capture_output=True,text=True)
+        return subprocess.run([sys.executable,'scripts/codex-integration.py',action,'--codex',str(self.client),'--skill-dir',str(self.skill)],env=self.env,capture_output=True,text=True)
 
     def succeed(self,action):
         result=self.invoke(action)

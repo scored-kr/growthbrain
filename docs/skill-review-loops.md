@@ -33,3 +33,20 @@
 - 출력schema 부재를 먼저 실패 검사로 재현. 실제stdio 계약/값 검증과 비정상peer 내용 비노출 검사 통과. 실제Chromium의 복합조건 전체표시/다른프로젝트 선택 후 늦은응답 무시/기존 UI검사 통과. Chrome API는 mock이며 설치된 확장 아님.
 - 회차2 fdc362e59989e58c9459d7eae4aca3cbc866e7a9와 회차3 219e4138c3fe1c0a2359965ea3d5effb9fac3972는 push/ls-remote 일치 확인. 각 새clone/fsck도 확인한다.
 - 회차3의 생성 부가조건 수 표기100을 실제80(4×4×5)으로 정정했다. 검증 범위 변경 없음.
+
+## 회차 5 / 챕터 19 — 재개와 최종 회귀
+
+- Given 새 기기에서 복제한 브랜치, When 준비된 Node/Python/Chromium으로 검사,
+  Then 이전 실행기의 개인 파일 없이 구현·스킬·설치·금고 흐름을 재검증할 수 있어야 한다.
+- 발견/수정: 테스트의 `python` 별칭과 클라우드 고정 Chromium 경로 의존. Python3/현재 인터프리터를
+  쓰고 합성UI만 명시 경로·기존 시스템·Playwright 브라우저를 선택한다. 설치확장 정책 검사 보존.
+  `test:local`로 로컬 전체 검사를 묶었다. 다른 OS/실제 사용자 기기의 성공을 주장하지 않는다.
+- 로컬 `test:local` 통과: Node58/58, 원문9/72, ign8t설치3, Codex설치8, agent설치2,
+  native설치, 터미널/복구 실제PTY, Chromium154.0.8037.57 합성UI. 실제ign8t doctor 세 조회 성공은 별도 확인한다.
+- 회차4 원격0184e8546d46110110515b529da18ffdbf366124의 새clone HEAD/fsck 확인.
+  챕터19 최종 원격clone 설치/검사 결과는 후속 백업 기록에 남긴다.
+- 실제 CodexCLI0.163.0도 재실행했으나 인증 갱신HTTP401, get_context0회/결과물없음.
+  `test:browser`는 ExtensionInstallBlocklist["*"]로 명시 실패. ClaudeCode 미설치,
+  Supabase 안전한 연결/도구 없음. 이 제한은 해결된 것으로 표시하지 않는다.
+- PM experiment-design으로 [기술 합격·실사용 효용 평가](product-validation.md)를 구체화했다.
+  파일럿/표본 가정/기간/측정/보호 기준을 분리했으며 실제 사용자 실험을 수행했다는 뜻이 아니다.

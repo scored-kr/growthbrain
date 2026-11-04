@@ -28,7 +28,7 @@ try{
  context=await chromium.launchPersistentContext(profile,{channel:'chromium',executablePath:'/usr/lib/chromium/chromium',headless:true,ignoreDefaultArgs:['--disable-extensions'],args:['--no-sandbox',`--disable-extensions-except=${ext}`,`--load-extension=${ext}`]});
  const worker=context.serviceWorkers()[0]??await context.waitForEvent('serviceworker');const id=new URL(worker.url()).hostname;
  installArgs=['scripts/native-integration.py','install','--extension-id',id,'--browser','chromium','--manifest-dir',join(profile,'NativeMessagingHosts'),'--launcher',join(root,'native-host'),'--socket',broker.path];
- execFileSync('python',installArgs,{stdio:'pipe'});
+ execFileSync('python3',installArgs,{stdio:'pipe'});
  const popup=await context.newPage();await popup.goto(`chrome-extension://${id}/popup.html`);
  await until(async()=> (await popup.locator('#status').textContent()).includes('연결됨'));
  await popup.selectOption('#project',project.id);
@@ -58,6 +58,6 @@ try{
  console.log(JSON.stringify({browser:'Chromium 154',actualNativeMessaging:true,fixtureHostsPregranted:true,syntheticSite:true,consentPauseDedupReviewReplacementLocked:'passed',liveAiSitesVerified:false}));
 }finally{
  await context?.close();
- if(installArgs){try{execFileSync('python',[installArgs[0],'remove',...installArgs.slice(2)],{stdio:'pipe'})}catch{}}
+ if(installArgs){try{execFileSync('python3',[installArgs[0],'remove',...installArgs.slice(2)],{stdio:'pipe'})}catch{}}
  await broker.close();await vault.close();await rm(root,{recursive:true,force:true});
 }

@@ -197,3 +197,11 @@ IPC크기·응답 계약과 오류별 안내를 두 실패회귀 재현 후 수�
 제품MCP 출력schema/structuredContent·텍스트 호환성, 비정상 응답 거절·비공개 내용 비노출.
 실제stdio와 Chromium 합성UI 검증. [출력계약](mcp-contract.md), [회차기록](skill-review-loops.md).
 보드 `2adaa149-be03-47b9-96bd-2ba92305d0db`.
+
+## 챕터 19 / 공개 스킬 회차 5
+
+테스트의 특정기기 Python/브라우저 의존 정리, test:local 전체검사 묶음, 새기기 안내 및
+실사용 실험·기술합격 기준을 추가했다. 로컬 전체검사58/58와 설치/PTY/합성UI 통과.
+실제 Codex 인증401/호출0, Chrome 정책차단을 현재 코드에서 다시 확인. 원격조회/새clone 검증은
+[5회 기록](skill-review-loops.md)의 후속 백업 표를 따른다.
+보드 `69b2eb49-beec-44cb-ac51-92d39fc2130e`. 환경재게시/프로덕션배포/사용자금고변경 없음.

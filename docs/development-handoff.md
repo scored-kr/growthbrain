@@ -12,7 +12,18 @@ npm run verify:skills
 ```
 
 기존 체크아웃은 먼저 `git status`와 `git ls-remote origin refs/heads/codex/growthbrain-recovery-20261103`을
-확인하고 로컬 변경을 보존한다. 실행 기준 Node 24+, Python 3.11+.
+확인하고 로컬 변경을 보존한다. 실행 기준 Node 24+, Python 3.11+ (`python3` 명령), Unix socket/PTY를 지원하는 기기.
+이번 전체 검증 기기는 Linux다. Windows native나 실제 macOS 클라이언트 성공을 주장하지 않는다.
+
+```sh
+npm run test:local
+```
+
+이 명령은 전체 Node 검사, 스킬 무결성, 설정 설치/해제, PTY/복구, 합성 Chromium UI를 수행한다.
+UI는 `GROWTH_BRAIN_TEST_CHROMIUM`의 명시 경로, 기존 Linux Chromium, Playwright 설치 브라우저
+순으로 선택한다. 브라우저가 없으면 사용자 기기에서 `npx playwright install chromium`으로 준비한다.
+UI에는 확장을 설치하지 않으며, 별도 `test:browser`의 관리 정책 차단은 그대로 준수한다.
+인증이 필요한 `doctor:ign8t`와 실제 모델/확장 검사는 이 로컬 합성 묶음에 포함하지 않는다.
 
 ign8t를 쓸 클라이언트 프로세스에 안전한 `IGN8T_API_KEY` 바인딩을 제공한다. 키를 셸 명령 인자,
 저장소 파일, 채팅에 붙여넣지 않는다. 설치 도구는 키 값을 읽거나 저장하지 않는다.

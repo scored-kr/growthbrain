@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-const browser=await chromium.launch({executablePath:'/usr/lib/chromium/chromium',headless:true,args:['--no-sandbox']});
+import { existsSync } from 'node:fs';
+// Fixture UI only: no extension is installed. The extension test retains policy enforcement.
+const executablePath=process.env.GROWTH_BRAIN_TEST_CHROMIUM??(existsSync('/usr/lib/chromium/chromium')?'/usr/lib/chromium/chromium':undefined);
+const browser=await chromium.launch({executablePath,headless:true,args:['--no-sandbox']});
 try{
  const page=await browser.newPage();
  await page.route('https://chatgpt.com/**',r=>r.fulfill({contentType:'text/html',body:'<article data-message-id="u1" data-message-author-role="user">한국어로 답변해주세요</article><article data-message-id="a1" data-message-author-role="assistant"><div class="markdown">알겠습니다</div></article>'}));
@@ -89,5 +92,5 @@ try{
  await popup.waitForFunction(()=>fixture.calls.at(-1)?.type==='MEMORIES'&&fixture.calls.at(-1).projectId==='44444444-4444-4444-8444-444444444444');
  await popup.evaluate(async()=>{fixture.release();await new Promise(resolve=>setTimeout(resolve,0));});
  assert.equal(await popup.locator('article').count(),0);
- console.log(JSON.stringify({kind:'real Chromium DOM/UI fixtures with mocked Chrome API',chatgptAdapter:true,claudeAdapter:true,stableIdRequired:true,dedupPauseResume:true,unlockRetryWithoutDomChange:true,permissionDenial:true,reviewClick:true,correctionStaysPending:true,retirementClick:true,htmlEscaping:true,installedExtensionVerified:false}));
+ console.log(JSON.stringify({kind:'real Chromium DOM/UI fixtures with mocked Chrome API',browser:browser.version(),chatgptAdapter:true,claudeAdapter:true,stableIdRequired:true,dedupPauseResume:true,unlockRetryWithoutDomChange:true,permissionDenial:true,reviewClick:true,correctionStaysPending:true,retirementClick:true,htmlEscaping:true,wholeQualificationRendered:true,staleProjectResponseIgnored:true,installedExtensionVerified:false}));
 }finally{await browser.close()}
