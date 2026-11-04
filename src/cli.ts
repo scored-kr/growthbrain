@@ -140,8 +140,15 @@ try {
         const path=await input.question('New encrypted backup path in a private directory: ');
         console.log(await vault.exportBackup(path));
       } else if (action === 'delete-all') {
-        if (await input.question('Deletes this device’s vault only; external backups and AI-held context remain. Type DELETE to confirm: ') === 'DELETE') {
-          await broker?.close(); broker = undefined; await vault.deleteAll(); break;
+        if (await input.question('Deletes this vault and its managed migration backups. Your exported backups, recovery files, remote account data and AI-held context remain. Type DELETE to confirm: ') === 'DELETE') {
+          try {
+            await broker?.close(); broker = undefined; await vault.deleteAll();
+            console.log('Local vault and managed migration backups deleted. Exported backups, recovery files, remote account data and AI-held context remain.');
+          } catch {
+            console.error('Local deletion incomplete. Session locked; remaining files were not declared deleted. Check the private vault directory and managed backup ownership/permissions before retrying.');
+            process.exitCode = 1;
+          }
+          break;
         }
       } else console.log('Commands: projects, project, memories, propose, candidates, review, correct, retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, delete-all, lock');
     } catch { console.log('Action failed. Check the project/candidate ID, explicit replacement, and field limits. No approval was assumed.'); }

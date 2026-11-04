@@ -80,9 +80,19 @@ with tempfile.TemporaryDirectory(prefix='gb-terminal-') as directory:
         until('stop using this memory: ');send('RETIRE')
         result=until('growth-brain> ');assert 'retired' in result
         assert 'TERMINAL_SYNTHETIC_MEMORY' not in Path(directory,'vault.json').read_text()
+        managed=Path(directory,'pre-state-v4-'+'1'*24+'.enc')
+        managed.write_bytes(Path(directory,'vault.json').read_bytes()); managed.chmod(0o600)
+        exported=Path(directory,'user-export.enc')
+        exported.write_bytes(Path(directory,'vault.json').read_bytes()); exported.chmod(0o600)
+        send('delete-all');until('Type DELETE to confirm: ');send('')
+        until('growth-brain> ')
+        assert managed.exists() and Path(directory,'vault.json').exists(), 'Cancel erased data'
         send('delete-all');until('Type DELETE to confirm: ');send('DELETE')
+        until('Local vault and managed migration backups deleted.')
         assert child.wait(timeout=10)==0
         assert not Path(directory,'vault.json').exists()
+        assert not managed.exists()
+        assert exported.exists()
         assert password not in transcript, 'Passphrase appeared in terminal output'
         print(json.dumps({'terminal_init_unlock_consent_routes_agent_bind_stop_propose_correct_review_retire_delete': 'passed', 'secret_echo': False}))
     finally:

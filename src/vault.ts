@@ -1,11 +1,13 @@
 import { randomBytes } from 'node:crypto';
-import { open, readFile, rename, unlink, mkdir, lstat, rmdir, realpath } from 'node:fs/promises';
+import { open, readFile, rename, unlink, mkdir, lstat, rmdir, realpath, readdir } from 'node:fs/promises';
 import { dirname, join, resolve, relative, isAbsolute, basename } from 'node:path';
 import { MemoryEngine } from './engine.js';
 import { identifier, STATE_VERSION } from './model.js';
 import { envelopeSchema, recoverySchema, derive, decrypt, decryptRecovery, seal, newHeader, type Envelope, type Header } from './envelope.js';
 
 const MAX_BYTES = 16 * 1024 * 1024;
+// Reserved for snapshots the app creates before state upgrades; never a recursive delete.
+const MIGRATION_BACKUP = /^pre-state-v[1-9][0-9]*-[a-f0-9]{24}\.enc$/;
 
 export async function privateDirectory(path: string) {
   await mkdir(path, { recursive: true, mode: 0o700 });
@@ -124,6 +126,7 @@ export class VaultSession {
   async exportBackup(destination: string) {
     if(this.closing)throw new Error('VAULT_LOCKED');
     destination=resolve(destination);
+    if (dirname(destination) === dirname(this.file) && MIGRATION_BACKUP.test(basename(destination))) throw new Error('RESERVED_BACKUP_NAME');
     const run=this.queue.then(async()=>{
       this.requireOpen();await privateDirectory(dirname(destination));
       await persist(destination,await readEnvelope(this.file),true);
@@ -193,10 +196,27 @@ export class VaultSession {
     await unlink(this.lockFile);
   }
   async deleteAll() {
+    if (this.closing) throw new Error('VAULT_LOCKED');
     this.closing = true;
-    await this.queue;
-    this.requireOpen();
-    await unlink(this.file);
-    await this.close();
+    const deleting = this.queue.then(async () => {
+      this.requireOpen();
+      const directory = dirname(this.file);
+      await privateDirectory(directory);
+      const backups = (await readdir(directory)).filter(name => MIGRATION_BACKUP.test(name)).sort().map(name => join(directory, name));
+      // Validate the entire managed set before deleting any file. Historical keys can differ
+      // after recovery rotation, so do not require the current key to decrypt old snapshots.
+      for (const file of [this.file, ...backups]) {
+        const envelope = await readEnvelope(file);
+        if (envelope.ownerId !== this.header.ownerId) throw new Error('BACKUP_OWNER_MISMATCH');
+      }
+      // Keep the primary vault until all managed backups are removed. A filesystem failure
+      // can still leave a partially deleted set; callers must never report full success then.
+      for (const backup of backups) await unlink(backup);
+      await unlink(this.file);
+    });
+    // Concurrent close/signal waits for this operation before releasing the process lock.
+    this.queue = deleting.catch(() => {});
+    try { await deleting; }
+    finally { await this.close(); }
   }
 }

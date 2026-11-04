@@ -54,3 +54,8 @@ npm run vault -- recover /absolute/new-vault-directory /absolute/private-backup.
 
 이전 코드로 `git revert`할 때 v2 파일은 읽을 수 없다. 전환 전 v1 암호문 백업과 그 비밀번호를
 별도 보존한다. Git 커밋은 사용자 데이터나 복구 키를 백업하지 않는다.
+
+`delete-all`의 명시적 DELETE 확인은 현재 로컬 금고와 앱이 관리하는 같은 디렉터리의
+`pre-state-v<버전>-<24자리 hex>.enc` 전환 백업에 적용된다. 사용자가 내보낸 백업·개인 복구 파일·
+외부/OS 백업·원격 계정 데이터·AI가 받은 맥락은 남는다. 과거 백업과 해당 복구 파일을 함께
+보유하면 그 과거 상태를 계속 복구할 수 있다. 삭제 범위·실패 처리는 [로컬 안내](local-development.md)를 따른다.

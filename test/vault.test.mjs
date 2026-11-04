@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID, randomBytes } from 'node:crypto';
-import { mkdtemp, readFile, writeFile, rm, stat, readdir } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm, stat, readdir, symlink, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { VaultSession } from '../dist/vault.js';
@@ -26,6 +26,59 @@ test('opening a v3 state preserves an authenticated encrypted backup before the 
     const opened=await decrypt(JSON.parse(await readFile(join(root,'vault.json'),'utf8')),owner,password);
     assert.equal(opened.sourceStateVersion,4);opened.key.fill(0);
   } finally {await vault?.close();await rm(root,{recursive:true,force:true});}
+});
+
+test('local deletion removes generated migration snapshots and preserves explicit exports', async t => {
+  const f = await setup(t); await f.session.close();
+  const engine = MemoryEngine.empty(f.owner);
+  engine.addProject('SYNTHETIC_HISTORICAL_PROJECT');
+  const { agentBindings, agentCaptures, projectTriggers, ...old } = engine.snapshot(); old.version = 3;
+  const salt = randomBytes(16), key = await derive(f.password, salt);
+  const envelope = seal({ snapshot: () => old }, key, { version: 1, ownerId: f.owner, salt: salt.toString('base64') }); key.fill(0);
+  await writeFile(join(f.directory, 'vault.json'), JSON.stringify(envelope));
+  f.session = await VaultSession.open(f.directory, f.owner, f.password);
+  const automatic = (await readdir(f.directory)).filter(name => name.startsWith('pre-state-v4-'));
+  assert.equal(automatic.length, 1);
+  const historical = await decrypt(JSON.parse(await readFile(join(f.directory, automatic[0]), 'utf8')), f.owner, f.password);
+  assert.equal(historical.engine.snapshot().projects[0].name, 'SYNTHETIC_HISTORICAL_PROJECT'); historical.key.fill(0);
+  const manual = join(f.directory, 'my-explicit-backup.enc');
+  await assert.rejects(f.session.exportBackup(join(f.directory, `pre-state-v4-${'a'.repeat(24)}.enc`)), /RESERVED_BACKUP_NAME/);
+  await f.session.exportBackup(manual);
+  const manualBytes = await readFile(manual);
+  await writeFile(join(f.directory, 'unrelated.txt'), 'preserve');
+  // An accepted write must finish before deletion, even if close is requested concurrently.
+  const pending = f.session.mutate(e => e.addProject('last accepted write'));
+  const deleting = f.session.deleteAll();
+  assert.throws(() => f.session.getContext({}), /VAULT_LOCKED/);
+  await Promise.all([pending, deleting, f.session.close()]);
+  for (const name of ['vault.json', 'vault.lock', ...automatic]) await assert.rejects(stat(join(f.directory, name)), { code: 'ENOENT' });
+  assert.deepEqual(await readFile(manual), manualBytes);
+  assert.equal(await readFile(join(f.directory, 'unrelated.txt'), 'utf8'), 'preserve');
+});
+
+test('deletion preflights every managed snapshot, fails closed, and leaves the vault recoverable', async t => {
+  for (const invalid of ['symlink', 'foreign-owner', 'permissions', 'corrupt']) {
+    await t.test(invalid, async t => {
+      const f = await setup(t);
+      const primary = join(f.directory, 'vault.json'), original = await readFile(primary);
+      const good = join(f.directory, `pre-state-v4-${'1'.repeat(24)}.enc`);
+      const bad = join(f.directory, `pre-state-v4-${'f'.repeat(24)}.enc`);
+      await writeFile(good, original, { mode: 0o600 });
+      if (invalid === 'symlink') await symlink(primary, bad);
+      else {
+        const bytes = invalid === 'foreign-owner' ? JSON.stringify({ ...JSON.parse(original), ownerId: randomUUID() }) : invalid === 'corrupt' ? '{invalid' : original;
+        await writeFile(bad, bytes, { mode: 0o600 });
+        if (invalid === 'permissions') await chmod(bad, 0o644);
+      }
+      await assert.rejects(f.session.deleteAll());
+      assert.deepEqual(await readFile(primary), original);
+      assert.deepEqual(await readFile(good), original, 'validate all files before removing any');
+      assert.throws(() => f.session.getContext({}), /VAULT_LOCKED/);
+      await assert.rejects(stat(join(f.directory, 'vault.lock')), { code: 'ENOENT' });
+      f.session = await VaultSession.open(f.directory, f.owner, f.password);
+      assert.ok(f.session.getContext({}));
+    });
+  }
 });
 
 async function setup(t) {

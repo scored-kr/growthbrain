@@ -10,7 +10,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node --test test/*.test.mjs",
-    "test:terminal": "npm run build && python3 test/terminal-smoke.py && python3 test/lock-terminal.py",
+    "test:terminal": "npm run build && python3 test/terminal-smoke.py && python3 test/lock-terminal.py && python3 test/deletion-terminal.py",
     "test:install": "npm run build && python3 test/install-smoke.py",
     "test:agent-install": "npm run build && python3 test/agent-install.py",
     "test:search": "npm run build && node test/search-evaluation.mjs",
