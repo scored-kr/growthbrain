@@ -179,3 +179,9 @@ HEAD 일치 및 `git fsck --no-reflogs`를 확인했다. 챕터 13·14는 각각
 빌드, 원문9/72, 설치3개, doctor계약2개, 실제 Codex 설정 읽기와 ign8t세조회 성공.
 상세 [5회 검토 기록](skill-review-loops.md), [재개 안내](development-handoff.md).
 보드 `97901046-3d91-45c1-9041-f187d10e7907`. 원격 SHA는 후속 기록 및 최종 보고를 따른다.
+
+## 챕터 16 / 공개 스킬 회차 2
+
+IPC크기·응답 계약과 오류별 안내를 두 실패회귀 재현 후 수정. npm test55/55 통과.
+금고포맷/동의/승인 변경 없음. [검토 보고](security-review-2026-11-04.md).
+보드 `79f7598a-cfa6-4eab-b2d1-1b449c3ad719`.

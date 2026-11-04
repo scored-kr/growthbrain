@@ -83,6 +83,10 @@ test('real stdio MCP transport retrieves scoped memory, records candidates, deni
   const rejectedOverride=await invoke('search_memory',{projectId:project.id,query:'한국어',requestConditions:excessive});
   assert.equal(rejectedOverride.raw.isError,true);
   assert.equal(rejectedOverride.value.error,'REQUEST_CONDITION_LIMIT');
+  assert.match(rejectedOverride.value.nextAction,/Reduce/);
+  const oversized=await invoke('get_context',{requestConditions:Object.fromEntries(Array.from({length:20},(_,i)=>[`large_${i}`,'가'.repeat(2000)]))});
+  assert.equal(oversized.raw.isError,true);assert.equal(oversized.value.error,'REQUEST_TOO_LARGE');
+  assert.match(oversized.value.nextAction,/Reduce/);assert.ok(!oversized.value.nextAction.includes('unlock'));
   assert.equal(await readFile(join(directory,'vault.json'),'utf8'),persisted);
   assert.ok(!(await readFile(join(directory,'vault.json'),'utf8')).includes('CANDIDATE_ONLY'));
   await vault.close();

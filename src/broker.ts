@@ -21,8 +21,19 @@ const requestSchema = z.discriminatedUnion('method', [
   z.object({method:z.literal('retire_memory'),params:z.object({projectId:identifier,id:identifier,reason:proposalSchema.shape.reason}).strict()}).strict(),
 ]);
 const MAX_REQUEST = 64 * 1024;
+const MAX_RESPONSE = 256 * 1024;
 const safeErrors = new Set(['PROJECT_NOT_FOUND','MEMORY_LIMIT','INVALID_SUPERSESSION','VAULT_LOCKED','REQUEST_CONDITION_LIMIT','VAULT_SIZE_LIMIT','CAPTURE_NOT_CONSENTED','CAPTURE_LIMIT','CAPTURE_URL_MISMATCH','EXPLICIT_SUPERSESSION_REQUIRED','STALE_SUPERSESSION','CANDIDATE_NOT_FOUND','ACTIVE_MEMORY_NOT_FOUND','AGENT_CAPTURE_NOT_CONSENTED','STALE_AGENT_CONSENT','AGENT_SESSION_SCOPE_MISMATCH','AGENT_TURN_NOT_CAPTURED']);
 export const safeError = (e: unknown) => e instanceof Error && safeErrors.has(e.message) ? e.message : 'REQUEST_FAILED';
+for (const code of ['INVALID_REQUEST', 'INVALID_RESPONSE', 'REQUEST_TOO_LARGE', 'RESPONSE_TOO_LARGE']) safeErrors.add(code);
+
+export function errorNextAction(code: string): string {
+  if (code === 'REQUEST_TOO_LARGE' || code === 'REQUEST_CONDITION_LIMIT') return 'Reduce the number or length of explicit request conditions and retry. Do not split a write into automatic duplicate proposals.';
+  if (code === 'RESPONSE_TOO_LARGE') return 'Request fewer records or a narrower query. Do not repeat a write automatically; inspect its status in the local terminal.';
+  if (code === 'PROJECT_NOT_FOUND') return 'Ask the user to select an existing project in the local Growth Brain terminal. Do not guess a different project.';
+  if (code === 'INVALID_REQUEST') return 'Check the tool input schema and retry with valid arguments.';
+  if (code === 'VAULT_LOCKED') return 'Open and unlock the local Growth Brain user terminal. Never supply a password or recovery key in chat or MCP arguments.';
+  return 'Inspect the local Growth Brain terminal for the operation status. Do not repeat a write automatically. Never supply a password or recovery key in chat or MCP arguments.';
+}
 
 export async function startBroker(vault: VaultSession, directory: string) {
   await privateDirectory(directory);
@@ -33,13 +44,16 @@ export async function startBroker(vault: VaultSession, directory: string) {
     socket.on('error', () => {});
     socket.on('data', chunk => {
       if (handled) return;
+      if (buffer.length + chunk.length > MAX_REQUEST) { handled = true; socket.end(JSON.stringify({ error: 'REQUEST_TOO_LARGE' }) + '\n'); return; }
       buffer = Buffer.concat([buffer, chunk]);
-      if (buffer.length > MAX_REQUEST) { handled = true; socket.end(JSON.stringify({ error: 'REQUEST_TOO_LARGE' }) + '\n'); return; }
       const end = buffer.indexOf(10);
       if (end < 0) return;
       handled = true;
       void (async () => {
-        const parsed = requestSchema.safeParse(JSON.parse(buffer.subarray(0, end).toString('utf8')));
+        let input: unknown;
+        try { input = JSON.parse(buffer.subarray(0, end).toString('utf8')); }
+        catch { socket.end(JSON.stringify({ error: 'INVALID_REQUEST' }) + '\n'); return; }
+        const parsed = requestSchema.safeParse(input);
         if (!parsed.success) { socket.end(JSON.stringify({ error: 'INVALID_REQUEST' }) + '\n'); return; }
         const { method, params } = parsed.data;
         let result: unknown;
@@ -55,7 +69,8 @@ export async function startBroker(vault: VaultSession, directory: string) {
         else if(method==='review_memory')result=await vault.mutate(e=>e.reviewScoped(params.projectId,params.id,params.decision,params.supersedesId));
         else if(method==='correct_candidate')result=await vault.mutate(e=>e.correctCandidate(params.projectId,params.id,params.value,params.reason));
         else result=await vault.mutate(e=>e.retireMemory(params.projectId,params.id,params.reason));
-        socket.end(JSON.stringify({ result }) + '\n');
+        const response = JSON.stringify({ result }) + '\n';
+        socket.end(Buffer.byteLength(response) > MAX_RESPONSE ? JSON.stringify({ error: 'RESPONSE_TOO_LARGE' }) + '\n' : response);
       })().catch(e => socket.end(JSON.stringify({ error: safeError(e) }) + '\n'));
     });
   });
@@ -73,6 +88,10 @@ export async function startBroker(vault: VaultSession, directory: string) {
 
 /** The stdio adapter has no keys and no approval route. Only a same-user socket is accepted. */
 export async function callBroker(path: string, method: string, params: unknown): Promise<unknown> {
+  let request: string;
+  try { request = JSON.stringify({ method, params }) + '\n'; }
+  catch { throw new Error('INVALID_REQUEST'); }
+  if (Buffer.byteLength(request) > MAX_REQUEST) throw new Error('REQUEST_TOO_LARGE');
   try {
     const stat = await lstat(path);
     if (!stat.isSocket() || (stat.mode & 0o077) || stat.uid !== process.getuid?.()) throw new Error('UNSAFE_SOCKET');
@@ -82,17 +101,20 @@ export async function callBroker(path: string, method: string, params: unknown):
     const fail = () => { socket.destroy(); reject(new Error('VAULT_LOCKED')); };
     socket.setTimeout(5000, fail);
     socket.once('error', fail);
-    socket.once('connect', () => socket.write(JSON.stringify({ method, params }) + '\n'));
+    socket.once('connect', () => socket.write(request));
     socket.on('data', chunk => {
+      if (buffer.length + chunk.length > MAX_RESPONSE) { socket.destroy(); reject(new Error('RESPONSE_TOO_LARGE')); return; }
       buffer = Buffer.concat([buffer, chunk]);
-      if (buffer.length > 256 * 1024) { socket.destroy(); reject(new Error('RESPONSE_TOO_LARGE')); return; }
       const end = buffer.indexOf(10); if (end < 0) return;
       socket.destroy();
       try {
         const response = JSON.parse(buffer.subarray(0,end).toString('utf8'));
-        if (response.error) reject(new Error(response.error)); else resolve(response.result);
+        if (!response || typeof response !== 'object' || Array.isArray(response) || Object.keys(response).length !== 1) throw new Error('INVALID_RESPONSE');
+        if (Object.hasOwn(response, 'error') && typeof response.error === 'string') reject(new Error(safeError(new Error(response.error))));
+        else if (Object.hasOwn(response, 'result')) resolve(response.result);
+        else throw new Error('INVALID_RESPONSE');
       } catch { reject(new Error('INVALID_RESPONSE')); }
     });
-    socket.once('end', () => { if (buffer.indexOf(10) < 0) reject(new Error('VAULT_LOCKED')); });
+    socket.once('end', () => { if (buffer.indexOf(10) < 0) reject(new Error(buffer.length ? 'INVALID_RESPONSE' : 'VAULT_LOCKED')); });
   });
 }
