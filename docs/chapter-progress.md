@@ -191,3 +191,9 @@ IPC크기·응답 계약과 오류별 안내를 두 실패회귀 재현 후 수�
 분리 문장의 부가 조건 누락 방지와 생성 입력/독립 의도장부 불변식 검사. npm test57/57,
 추출/검색 기존 합성corpus 회귀 통과. 보드 `a4365434-781c-469e-8cad-21bc8ba93360`.
 원문/암호문 상태버전은 그대로다.
+
+## 챕터 18 / 공개 스킬 회차 4
+
+제품MCP 출력schema/structuredContent·텍스트 호환성, 비정상 응답 거절·비공개 내용 비노출.
+실제stdio와 Chromium 합성UI 검증. [출력계약](mcp-contract.md), [회차기록](skill-review-loops.md).
+보드 `2adaa149-be03-47b9-96bd-2ba92305d0db`.

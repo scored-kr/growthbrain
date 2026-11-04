@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID, randomBytes } from 'node:crypto';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, chmod } from 'node:fs/promises';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -33,9 +34,12 @@ test('real stdio MCP transport retrieves scoped memory, records candidates, deni
   await client.connect(transport);
   const tools=(await client.listTools()).tools;
   assert.deepEqual(tools.map(t=>t.name).sort(),['get_context','propose_memory','search_memory']);
+  for(const tool of tools) { assert.equal(tool.outputSchema?.type,'object');assert.ok(tool.title); }
+  assert.equal(tools.find(t=>t.name==='propose_memory').annotations.idempotentHint,false);
   assert.ok(!JSON.stringify(tools).includes('password'));
   const invoke=async(name,args)=>{
     const r=await client.callTool({name,arguments:args});
+    if(!r.isError)assert.deepEqual(r.structuredContent,JSON.parse(r.content[0].text));
     return {raw:r,value:JSON.parse(r.content[0].text)};
   };
   const first=await invoke('get_context',{projectId:project.id});
@@ -95,4 +99,16 @@ test('real stdio MCP transport retrieves scoped memory, records candidates, deni
   const lockedSearch=await invoke('search_memory',{projectId:project.id,query:'한국어',requestConditions});
   assert.equal(lockedSearch.raw.isError,true);assert.equal(lockedSearch.value.error,'VAULT_LOCKED');
   assert.ok(!stderr.includes(password));assert.ok(!stderr.includes('CANDIDATE_ONLY'));
+});
+
+test('MCP refuses peer data that violates the advertised success schema without exposing it',async t=>{
+  const directory=await mkdtemp(join(tmpdir(),'gb-mcp-contract-')),path=join(directory,'memory.sock');
+  const peer=createServer(socket=>{socket.on('error',()=>{});socket.once('data',()=>socket.end(JSON.stringify({result:{id:randomUUID(),status:'active',reviewRequired:false,private:'UNEXPECTED_PRIVATE_PEER_DATA'}})+'\n'));});
+  await new Promise(resolve=>peer.listen(path,resolve));await chmod(path,0o600);
+  const client=new Client({name:'synthetic-output-contract',version:'1.0.0'});
+  t.after(async()=>{await client.close();await new Promise(resolve=>peer.close(resolve));await rm(directory,{recursive:true,force:true});});
+  await client.connect(new StdioClientTransport({command:process.execPath,args:[resolve('dist/mcp.js')],env:{GROWTH_BRAIN_SOCKET:path},stderr:'ignore'}));
+  const result=await client.callTool({name:'propose_memory',arguments:proposal({type:'global'},'tone','Synthetic candidate')});
+  assert.equal(result.isError,true);assert.equal(JSON.parse(result.content[0].text).error,'INVALID_RESPONSE');
+  assert.equal(result.structuredContent,undefined);assert.ok(!JSON.stringify(result).includes('UNEXPECTED_PRIVATE_PEER_DATA'));
 });
