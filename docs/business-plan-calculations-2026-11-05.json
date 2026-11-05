@@ -1,0 +1,59 @@
+{
+  "basis": "BizForge PDF 2026-11-05 p8-p13; arithmetic checks only, not observed traction; user confirms metrics are goals/assumptions",
+  "source_pdf_sha256": "202d00c8a45a9f5b6146d9daf0fa624a388076c79b367513bfa7aa3351d87c23",
+  "tam_krw_at_plan_fx": 15318000000000,
+  "tam_in_eok": 153180,
+  "sam_at_rounded_0_2_percent_krw": 30636000000,
+  "sam_at_1_5_percent_times_13_3_percent_krw": 30559410000,
+  "som_at_2_5_percent_of_rounded_sam_krw": 765900000,
+  "mrr_300_all_monthly": 4470000,
+  "mrr_300_half_annual": 4020000,
+  "mrr_300_all_annual": 3570000,
+  "annual_price_krw": 142800,
+  "annual_discount_percent": 20.13422818791946,
+  "cac_spend_only_assumed": 42857.142857142855,
+  "assumed_conversion_denominator_per_month": 1000.0,
+  "six_month_gross_payers_at_35": 210,
+  "trial_starts_for_300_at_assumed_rate_no_churn": 8571.42857142857,
+  "six_month_spend_at_growth_plan": 9000000,
+  "grant_marketing_budget": 5000000,
+  "unallocated_spend_difference_six_months": 4000000,
+  "revenue_ltv_at_12_months_assumed": 178800,
+  "revenue_ltv_cac_ratio_assumed": 4.172,
+  "gross_profit_ltv_at_80pct_assumed": 143040.0,
+  "gross_profit_ltv_cac_ratio_assumed": 3.3376,
+  "average_paid_users_for_plan_year1_revenue_at_monthly_price": 142.50559284116332,
+  "cost_ceiling_for_80pct_margin_monthly": 2980.0,
+  "cost_ceiling_for_80pct_margin_annual": 2380.0,
+  "support_sensitivity_assumptions": {
+    "labor_krw_per_hour": 30000,
+    "other_variable_krw_per_user_month": 1000,
+    "excludes": "taxes, payment fees, sales, development and fixed costs; hypothetical not measured"
+  },
+  "support_sensitivity": [
+    {
+      "monthly_price": 14900,
+      "minutes": 10,
+      "contribution": 8900,
+      "contribution_percent": 59.73154362416108
+    },
+    {
+      "monthly_price": 14900,
+      "minutes": 30,
+      "contribution": -1100,
+      "contribution_percent": -7.382550335570469
+    },
+    {
+      "monthly_price": 11900,
+      "minutes": 10,
+      "contribution": 5900,
+      "contribution_percent": 49.57983193277311
+    },
+    {
+      "monthly_price": 11900,
+      "minutes": 30,
+      "contribution": -4100,
+      "contribution_percent": -34.45378151260504
+    }
+  ]
+}
