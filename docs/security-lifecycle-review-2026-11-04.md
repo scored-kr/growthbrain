@@ -5,6 +5,18 @@ OpenAI security-best-practices/security-threat-model과 Trail of Bits sharp-edge
 사용자가 이미 정한 기기 로컬 금고/서버 암호문/AI 전달 맥락 공개라는 경계를 따른다.
 모든 재현은 임시 합성 금고와 로컬 프로세스에서 수행한다. 외부 감사나 무취약성 인증이 아니다.
 
+## GB-SCOPE-01 — 재개한 옛 세션에 다른 프로젝트 조회를 안내
+
+2026-11-05 Mem0 소스 검토 중 자체 흐름을 대조해 재현했다. 폴더를 A에서 B로 재바인딩한 뒤
+A에서 수집한 세션을 재개하면 SessionStart가 B의 projectId를 MCP에 전달하라고 안내했다.
+수집 엔진의 세션 격리와 달리 조회 안내에는 검사가 빠져 있었다. 실제 AI의 다른 프로젝트 기억
+회수까지 실행한 것은 아니지만, 잘못된 자동 조회 안내를 실제 훅/IPC에서 확인했다.
+
+내부 binding 조회에 sessionId를 필수화하고 기존 client/session의 workspace/project가 다르면
+새 세션을 요청하며 안내를 중단한다. 기존 동의 세대 검사와 새 세션/중지 상태를 유지한다.
+수정 전 회귀 실패→수정 후 Codex/Claude 훅 프로세스 및 전체 Node67/67 통과.
+[상세 검토](mem0-source-review-2026-11-05.md). 상태 v4/envelope v1/v2 변경 없음.
+
 ## GB-LOCK-01 — 잠금 시작 후 기존 연결이 요청을 완료할 수 있음
 
 - 위험: medium. 같은 OS 사용자로 이미 연결한 클라이언트가 필요하다. 원격 비인증 공격으로 분류하지 않는다.

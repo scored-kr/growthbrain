@@ -113,16 +113,28 @@ export class MemoryEngine {
     if(index<0)this.state.agentBindings.push(next);else this.state.agentBindings[index]=next;
     return structuredClone(next);
   }
-  getAgentBinding(client:'codex'|'claude-code',workspace:string) {
+  private currentAgentBinding(client:'codex'|'claude-code',workspace:string) {
     const binding=this.state.agentBindings.find(b=>b.client===client&&b.workspace===workspace&&b.enabled);
     if(!binding)throw new Error('AGENT_CAPTURE_NOT_CONSENTED');
+    return binding;
+  }
+  private agentSession(client:'codex'|'claude-code',workspace:string,projectId:string,sessionId:string) {
+    agentCaptureInputSchema.shape.sessionId.parse(sessionId);
+    // Recall hints and capture must share the same session boundary. A resumed session
+    // still contains its old project's conversation even before the next prompt arrives.
+    const session=this.state.agentCaptures.filter(c=>c.client===client&&c.sessionId===sessionId);
+    if(session.some(c=>c.workspace!==workspace||c.projectId!==projectId))throw new Error('AGENT_SESSION_SCOPE_MISMATCH');
+    return session;
+  }
+  getAgentBinding(client:'codex'|'claude-code',workspace:string,sessionId:string) {
+    const binding=this.currentAgentBinding(client,workspace);
+    this.agentSession(client,workspace,binding.projectId,sessionId);
     return structuredClone(binding);
   }
   captureAgent(input:unknown) {
-    const parsed=agentCaptureInputSchema.parse(input),binding=this.getAgentBinding(parsed.client,parsed.workspace);
+    const parsed=agentCaptureInputSchema.parse(input),binding=this.currentAgentBinding(parsed.client,parsed.workspace);
     if(binding.id!==parsed.bindingId)throw new Error('STALE_AGENT_CONSENT');
-    const session=this.state.agentCaptures.filter(c=>c.client===parsed.client&&c.sessionId===parsed.sessionId);
-    if(session.some(c=>c.workspace!==parsed.workspace||c.projectId!==binding.projectId))throw new Error('AGENT_SESSION_SCOPE_MISMATCH');
+    const session=this.agentSession(parsed.client,parsed.workspace,binding.projectId,parsed.sessionId);
     if(parsed.role==='assistant'&&!session.some(c=>c.turnId===parsed.turnId&&c.bindingId===binding.id&&c.role==='user'))throw new Error('AGENT_TURN_NOT_CAPTURED');
     const contentHash=hashText(parsed.text);
     const previous=session.findLast(c=>c.turnId===parsed.turnId&&c.role===parsed.role);

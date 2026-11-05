@@ -10,7 +10,7 @@ const requestSchema = z.discriminatedUnion('method', [
   z.object({ method: z.literal('search_memory'), params: searchSchema }).strict(),
   z.object({ method: z.literal('propose_memory'), params: proposalSchema }).strict(),
   // Local native-messaging/UI operations; these are never registered as MCP tools.
-  z.object({method:z.literal('get_agent_binding'),params:z.object({client:agentClientSchema,workspace:workspaceSchema}).strict()}).strict(),
+  z.object({method:z.literal('get_agent_binding'),params:z.object({client:agentClientSchema,workspace:workspaceSchema,sessionId:agentCaptureInputSchema.shape.sessionId}).strict()}).strict(),
   z.object({method:z.literal('capture_agent'),params:agentCaptureInputSchema}).strict(),
   z.object({method:z.literal('list_projects'),params:z.object({}).strict()}).strict(),
   z.object({method:z.literal('configure_capture'),params:consentSchema}).strict(),
@@ -69,7 +69,7 @@ export async function startBroker(vault: VaultSession, directory: string) {
         else if(method==='list_projects')result=vault.read(e=>({projects:e.snapshot().projects,settings:e.snapshot().captureSettings}));
         else if(method==='configure_capture')result=await vault.mutate(e=>e.configureCapture(params));
         else if(method==='capture')result=await vault.mutate(e=>e.capture(params));
-        else if(method==='get_agent_binding')result=vault.read(e=>e.getAgentBinding(params.client,params.workspace));
+        else if(method==='get_agent_binding')result=vault.read(e=>e.getAgentBinding(params.client,params.workspace,params.sessionId));
         else if(method==='capture_agent')result=await vault.mutate(e=>e.captureAgent(params));
         else if(method==='list_memories')result=vault.read(e=>e.listMemories(params.projectId,params.status,params.offset,params.limit));
         else if(method==='review_memory')result=await vault.mutate(e=>e.reviewScoped(params.projectId,params.id,params.decision,params.supersedesId));

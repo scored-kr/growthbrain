@@ -49,6 +49,34 @@ async function runHook(client,event,socket){
   child.stdin.end(JSON.stringify(event));const code=await new Promise((res,rej)=>{child.once('error',rej);child.once('close',res)});
   assert.equal(code,0);assert.equal(stderr,'');return {output:JSON.parse(stdout),stdout};
 }
+test('resumed agent sessions cannot receive a different project binding as recall guidance',async t=>{
+  const root=await mkdtemp(join(tmpdir(),'gb-recall-scope-')),workspace=join(root,'work'),moved=join(root,'moved');
+  await mkdir(workspace);await mkdir(moved);
+  const directory=join(root,'vault'),vault=await VaultSession.open(directory,randomUUID(),randomBytes(24).toString('base64url'),true);
+  const [a,b]=await vault.mutate(e=>[e.addProject('PRIVATE_OLD_PROJECT'),e.addProject('PRIVATE_NEW_PROJECT')]);
+  const broker=await startBroker(vault,directory);
+  t.after(async()=>{await vault.close();await broker.close();await rm(root,{recursive:true,force:true});});
+  for(const client of ['codex','claude-code']) {
+    const session_id=randomUUID(),base={cwd:workspace,session_id,...(client==='codex'?{turn_id:randomUUID()}:{prompt_id:randomUUID()})};
+    await vault.mutate(e=>e.configureAgentCapture({client,workspace,projectId:a.id,enabled:true}));
+    await runHook(client,{...base,hook_event_name:'UserPromptSubmit',prompt:'PRIVATE_OLD_SESSION_TEXT'},broker.path);
+    await vault.mutate(e=>e.configureAgentCapture({client,workspace,projectId:b.id,enabled:true}));
+    for(const cwd of [workspace,moved]) {
+      if(cwd===moved)await vault.mutate(e=>e.configureAgentCapture({client,workspace:moved,projectId:b.id,enabled:true}));
+      const resumed=await runHook(client,{...base,cwd,hook_event_name:'SessionStart'},broker.path);
+      assert.match(resumed.output.systemMessage??'',/AGENT_SESSION_SCOPE_MISMATCH/);
+      assert.equal(resumed.output.hookSpecificOutput,undefined);
+      for(const privateValue of [a.id,b.id,'PRIVATE_OLD_SESSION_TEXT','PRIVATE_NEW_PROJECT'])assert.ok(!resumed.stdout.includes(privateValue));
+    }
+    const fresh=await runHook(client,{...base,session_id:randomUUID(),hook_event_name:'SessionStart'},broker.path);
+    assert.match(fresh.output.hookSpecificOutput.additionalContext,new RegExp(b.id));
+    await vault.mutate(e=>e.configureAgentCapture({client,workspace,projectId:b.id,enabled:false}));
+    const paused=await runHook(client,{...base,hook_event_name:'SessionStart'},broker.path);
+    assert.match(paused.output.hookSpecificOutput.additionalContext,/Capture is disabled/);
+    assert.ok(!paused.stdout.includes(a.id)&&!paused.stdout.includes(b.id));
+  }
+  assert.equal(vault.read(e=>e.snapshot().agentCaptures.length),2);
+});
 test('Codex and Claude hook subprocesses capture via real IPC, encrypt raw text, keep candidates pending and reach a fresh MCP',async t=>{
   const root=await mkdtemp(join(tmpdir(),'gb-agent-'));await mkdir(join(root,'work'));
   const directory=join(root,'vault'),owner=randomUUID(),password=randomBytes(24).toString('base64url');

@@ -4,6 +4,11 @@
 매 턴 별도 저장 명령 없이 사용자 입력과 최종 assistant 답변을 금고로 보낸다. Claude Code와
 Codex는 같은 기억 엔진을 사용하지만 이벤트 어댑터는 분리한다.
 
+세션 시작/재개 때도 이전 수집의 client/session/workspace/project와 현재 binding을 비교한다.
+프로젝트 재바인딩 또는 폴더 이동 뒤 옛 세션을 열면 새 프로젝트 조회 안내를 반환하지 않고
+`AGENT_SESSION_SCOPE_MISMATCH`와 새 AI 세션 시작 안내를 표시한다. 수집 이력이 없는 세션의
+과거 대화까지 확인할 수는 없다. [재현과 수정 근거](mem0-source-review-2026-11-05.md)를 참고한다.
+
 | 클라이언트 | 입력 이벤트 | 답변 이벤트 | 턴 식별 |
 | --- | --- | --- | --- |
 | Codex CLI | `UserPromptSubmit.prompt` | `Stop.last_assistant_message` | `turn_id` |

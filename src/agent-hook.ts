@@ -10,7 +10,7 @@ export async function handleAgentHook(client:'codex'|'claude-code',input:unknown
   if(event.agent_id)return {}; // Never silently treat subagent output as the selected user's conversation.
   const workspace=await realpath(event.cwd);
   let binding;
-  try {binding=agentBindingSchema.parse(await callBroker(socket,'get_agent_binding',{client,workspace}));}
+  try {binding=agentBindingSchema.parse(await callBroker(socket,'get_agent_binding',{client,workspace,sessionId:event.session_id}));}
   catch(error){if(safeError(error)!=='AGENT_CAPTURE_NOT_CONSENTED')throw error;}
   if(binding&&event.hook_event_name!=='SessionStart') {
     const turnId=client==='codex'?event.turn_id:event.prompt_id;
@@ -39,7 +39,8 @@ export async function runAgentHook() {
     output=await handleAgentHook(client,JSON.parse(Buffer.concat(chunks).toString('utf8')),socket);
   } catch(error) {
     const code=safeError(error);
-    if(code!=='AGENT_CAPTURE_NOT_CONSENTED')output={systemMessage:`Growth Brain automatic capture was not completed (${code}). Check the local vault, consent and supported client event fields. No plaintext retry file was saved.`};
+    if(code==='AGENT_SESSION_SCOPE_MISMATCH')output={systemMessage:'Growth Brain stopped this hook (AGENT_SESSION_SCOPE_MISMATCH). This session belongs to a different project or workspace. Start a new AI session for the newly selected project. No project recall hint or plaintext retry file was saved.'};
+    else if(code!=='AGENT_CAPTURE_NOT_CONSENTED')output={systemMessage:`Growth Brain automatic capture was not completed (${code}). Check the local vault, consent and supported client event fields. No plaintext retry file was saved.`};
   }
   process.stdout.write(JSON.stringify(output)+'\n');
 }
