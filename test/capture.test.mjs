@@ -36,7 +36,7 @@ test('deduplication, revisions, assistant boundary and project-only candidates',
 });
 test('v1 state migrates explicitly and invalid capture revisions are rejected',()=>{
   const id=randomUUID();const old={version:1,ownerId:id,projects:[],memories:[]};
-  const migrated=new MemoryEngine(old).snapshot();assert.equal(migrated.version,5);assert.deepEqual(migrated.captures,[]);
+  const migrated=new MemoryEngine(old).snapshot();assert.equal(migrated.version,6);assert.deepEqual(migrated.captures,[]);
   const {engine,project}=fixture();engine.configureCapture({site:'chatgpt.com',projectId:project.id,enabled:true});engine.capture(input(project.id));
   const state=engine.snapshot();state.captures[0].previousId=state.captures[0].id;
   assert.throws(()=>new MemoryEngine(state),/INVALID_CAPTURE_REVISION/);

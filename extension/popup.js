@@ -1,5 +1,6 @@
 const $=id=>document.getElementById(id);let local={},capture={},projects=[],nextOffset=null,viewGeneration=0;
 function status(message){$('status').textContent=message}
+$('open-import').onclick=()=>run(async()=>{await chrome.tabs.create({url:chrome.runtime.getURL('import.html')})});
 const taskLabels={writing:'글쓰기',translation:'번역',campaign:'캠페인',analysis:'분석',coding:'코딩'};
 function applicabilityLabel(memory){return memory.applicability?`적용 업무: ${memory.applicability.taskTypes.map(t=>taskLabels[t]??t).join(', ')} (다른 업무·미지정 시 제외)`:'적용 업무: 모든 업무의 기본값';}
 async function send(message){const response=await chrome.runtime.sendMessage(message);if(!response?.ok)throw Error(response?.error??'연결 실패');return response.result}
@@ -29,6 +30,7 @@ async function memories(offset=0){
     const text=document.createElement('pre');text.textContent=m.value;
     const source=document.createElement('small');source.textContent=`출처: ${m.captureSource?.url??m.source.reference}\n원문: ${m.source.excerpt}\n이유: ${m.reason}`;
     card.append(heading,text,source);
+    if(m.captureSource?.importSource){const origin=m.captureSource.importSource,notice=document.createElement('small');notice.textContent=`${origin.provider==='claude-export'?'Claude':'ChatGPT'} 과거 대화 가져오기 · ${origin.title}\n원래 발언: ${origin.createdAt??'시각 미상'} · ${m.captureSource.role==='user'?'사용자':'AI'}\n${origin.branchMode==='unverified-flat'?'현재 분기를 확인할 수 없는 파일입니다. 예전 답변이 함께 있을 수 있습니다. ':''}과거 내용입니다. 현재도 유효한지 확인한 뒤 승인하세요.`;card.append(notice)}
     const applicability=document.createElement('small');applicability.textContent=applicabilityLabel(m);card.append(applicability);
     if(m.correctionOf){const history=document.createElement('small');history.textContent=`사용자 수정 후보 · 이전 항목: ${m.correctionOf}`;card.append(history)}
     if(m.status==='retired'){const history=document.createElement('small');history.textContent=`사용 중지: ${m.retiredAt}\n사유: ${m.retirementReason}`;card.append(history)}

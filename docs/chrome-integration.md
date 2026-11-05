@@ -43,7 +43,7 @@ python scripts/native-integration.py remove --extension-id <확장-ID>
 
 - 수집 연결은 Chrome native messaging → 사용자 전용 Unix socket → 암호화 금고이다.
   HTTP/클라우드에 원문을 전송하지 않는다. 본문·프로젝트 이름을 browser storage에 저장하지 않는다.
-- popup만 동의/프로젝트/검토를 변경한다. content script는 캡처만 요청하며, background가
+- popup에서 사이트 수집 동의/프로젝트 선택/기억 검토를 변경한다. 별도 import 페이지의 프로젝트 생성·가져오기는 아래 계약을 따른다. content script는 캡처만 요청하며, background가
   sender의 사이트·현재 페이지 URL을 검증하고 선택 프로젝트를 붙인다. 엔진도 동의를 재검사한다.
 - native 관리 API는 제품 MCP 도구에 등록하지 않는다. 비밀번호/복구 키는 native 메시지에도 없다.
 - 어댑터는 ChatGPT의 author/message-id 속성, Claude의 user-message/assistant-message와
@@ -85,3 +85,11 @@ popup의 “수집 허용”은 동의 상태다. “마지막 전송 확인”�
 대체되었던 과거 결정은 부활하지 않는다. 프로젝트 조건 중지 후 공통 기본값이 적용될 수 있으며,
 공통 기억 중지는 모든 프로젝트에 영향을 준다. **전체 상태**에서 수정/중지 이력을 확인한다.
 이 동작은 물리 삭제가 아니다. 전체 로컬 삭제는 사용자 터미널의 `delete-all`로 별도 확인한다.
+
+## 기존 일반 채팅 가져오기
+
+확장 아이콘의 **기존 채팅 대화 가져오기**에서 ChatGPT/Claude 내보내기 JSON을 기기에서 선택한다.
+별도 탭의 미리보기·프로젝트 선택/생성·명시 동의를 거쳐 후보를 만든다.
+Claude 분기 미확인 export는 추가 확인과 출처 표시를 유지한다. 사이트 수집 동의는 자동으로 켜지지 않는다.
+이 import 페이지에는 가져오기·프로젝트 생성만 추가 허용하고 content script에는 허용하지 않는다.
+[형식/한도/검토/중단/검증 안내](chat-history-import.md)를 따른다.

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>기존 대화 가져오기 — Growth Brain</title><link rel="stylesheet" href="popup.css"></head>
+<body class="import-page">
+<h1>기존 채팅 대화 가져오기</h1>
+<p>ChatGPT는 설정 → 데이터 제어, Claude는 설정 → 개인정보에서 데이터를 내보낼 수 있습니다. 받은 ZIP을 기기에서 풀고, conversations.json 또는 번호가 붙은 대화 JSON을 하나씩 선택하세요.</p>
+<p>파일은 이 기기에서 읽습니다. 가져오기에 동의하고 실행하기 전에는 금고에 보내지 않습니다. 가져온 내용은 로컬에서 암호화하며, 승인한 기억을 나중에 AI에 전달하면 해당 AI가 읽을 수 있습니다.</p>
+<p id="import-status" role="status" aria-live="polite">로컬 금고 연결 확인 중…</p>
+<fieldset id="selection"><legend>가져올 대화와 저장 대상</legend>
+<label>내보낸 서비스 <select id="import-provider"><option value="chatgpt-export">ChatGPT</option><option value="claude-export">Claude</option></select></label>
+<button id="reload-projects" type="button">금고 연결 새로고침</button>
+<label>프로젝트 <select id="import-project"><option value="">선택하세요</option></select></label>
+<label>새 프로젝트 이름 <input id="new-project-name" maxlength="200" autocomplete="off"></label>
+<button id="create-project" type="button">프로젝트 만들기</button>
+<label>내보낸 JSON 파일 (최대 20 MiB) <input id="export-file" type="file" accept=".json,application/json"></label>
+<label>대화 <select id="conversation"><option value="">파일을 선택하세요</option></select></label>
+<button id="clear-file" type="button">선택한 파일 지우기</button>
+</fieldset>
+<p id="import-summary">아직 선택한 대화가 없습니다.</p>
+<div id="import-preview"></div><button id="preview-more" type="button" hidden>다음 메시지 보기</button>
+<p>이미지·첨부·도구·추론 내용은 가져오지 않습니다. 현재 분기 정보가 있으면 다른 답변 분기는 제외합니다. 과거 결정은 지금과 다를 수 있어 새 기억 후보만 만들고 자동 확정하지 않습니다. 공통 선호도로 자동 등록하지 않습니다.</p>
+<div id="branch-warning" hidden><label><input id="unverified-consent" type="checkbox"> 이 Claude 파일은 현재 대화 분기 정보가 없습니다. 예전 답변이 함께 있을 수 있음을 확인했고, 미리본 내용을 과거 기록과 승인 대기 후보로 가져오겠습니다.</label></div>
+<label><input id="import-consent" type="checkbox"> 선택한 대화를 위 프로젝트에 가져오는 데 동의합니다.</label>
+<button id="start-import" type="button" disabled>선택한 대화 가져오기</button>
+<button id="stop-import" type="button" hidden>가져오기 중단</button>
+<p>가져온 후보는 확장 아이콘의 ‘기억 검토’에서 승인·기각하세요. 중단 전에 저장된 항목은 남습니다. 같은 파일의 같은 대화를 다시 가져오면 중복을 제외합니다. 이 기능이 새 채팅의 AI 연결까지 완료하는 것은 아닙니다.</p>
+<script src="import-page.js" type="module"></script></body></html>

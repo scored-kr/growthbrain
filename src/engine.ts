@@ -4,6 +4,7 @@ import { classifyCapture } from './classifier.js';
 import { MemoryIndexes, matchesTrigger } from './memory-index.js';
 import { sameApplicability } from './memory-applicability.js';
 import type { TaskType } from './model.js';
+import { chatImportInputSchema } from './model.js';
 
 const sameScope = (a: Scope, b: Scope) => a.type === b.type && (a.type === 'global' || (b.type === 'project' && a.projectId === b.projectId));
 const hashText=(text:string)=>createHash('sha256').update(text).digest('hex');
@@ -50,9 +51,18 @@ export class MemoryEngine {
       agentCaptures.set(capture.id,capture);
     }
     const previousCaptures=new Map<string,Capture>();
+    const importedProjects=new Map<string,string>();
     for(const capture of this.state.captures) {
       if(!projects.has(capture.projectId))throw new Error('INVALID_PROJECT_REFERENCE');
       if(canonicalUrl(capture.url,capture.site)!==capture.url || hashText(capture.text)!==capture.contentHash)throw new Error('INVALID_CAPTURE');
+      if(capture.importSource){
+        const source=capture.importSource;
+        const site=source.provider==='chatgpt-export'?'chatgpt.com':'claude.ai',url=source.provider==='chatgpt-export'?`https://chatgpt.com/c/${source.conversationId}`:`https://claude.ai/chat/${source.conversationId}`;
+        if((source.branchMode==='current'?source.branchLeafId===null:source.provider!=='claude-export'||source.branchLeafId!==null)||capture.site!==site||capture.url!==url||capture.messageId!==`import:${hashText(source.messageId)}`)throw new Error('INVALID_IMPORT_SOURCE');
+        const prior=importedProjects.get(`${source.provider}:${source.conversationId}`);
+        if(prior&&prior!==capture.projectId)throw new Error('IMPORT_PROJECT_MISMATCH');
+        importedProjects.set(`${source.provider}:${source.conversationId}`,capture.projectId);
+      }
       if(capture.previousId) {
         const previous=previousCaptures.get(capture.previousId);
         if(!previous || captureIdentity(previous)!==captureIdentity(capture))throw new Error('INVALID_CAPTURE_REVISION');
@@ -172,6 +182,28 @@ export class MemoryEngine {
     identifier.parse(id);
     if (!this.state.projects.some(p => p.id === id)) throw new Error('PROJECT_NOT_FOUND');
   }
+  importChat(input:unknown){
+    const parsed=chatImportInputSchema.parse(input);this.requireProject(parsed.projectId);
+    if(this.state.captures.some(c=>c.importSource?.provider===parsed.provider&&c.importSource.conversationId===parsed.conversationId&&c.projectId!==parsed.projectId))throw new Error('IMPORT_PROJECT_MISMATCH');
+    const captures:Capture[]=[],proposals:ReturnType<typeof classifyCapture>=[];let duplicates=0;
+    for(const message of parsed.messages){
+      const site=parsed.provider==='chatgpt-export'?'chatgpt.com' as const:'claude.ai' as const;
+      const identity={site,projectId:parsed.projectId,url:site==='chatgpt.com'?`https://chatgpt.com/c/${parsed.conversationId}`:`https://claude.ai/chat/${parsed.conversationId}`,messageId:`import:${hashText(message.id)}`,role:message.role};
+      const contentHash=hashText(message.text),history=this.state.captures.filter(c=>captureIdentity(c)===captureIdentity(identity));
+      // Any previously imported revision is a replay, even if its candidate was rejected/retired.
+      if(history.some(c=>c.contentHash===contentHash)){duplicates++;continue;}
+      const previous=history.at(-1);
+      const capture:Capture={...identity,id:randomUUID(),text:message.text,contentHash,capturedAt:new Date().toISOString(),...(previous?{previousId:previous.id}:{}),
+        importSource:{provider:parsed.provider,branchMode:parsed.branchMode,conversationId:parsed.conversationId,title:parsed.title,branchLeafId:parsed.branchLeafId,messageId:message.id,createdAt:message.createdAt}};
+      captures.push(capture);
+      for(const p of classifyCapture(capture))proposals.push({...p,reason:`Historical chat import (${message.createdAt??'original time unknown'}). ${parsed.branchMode==='unverified-flat'?'Current conversation branch is UNVERIFIED; alternatives may be included. ':''}This may be outdated; review the conversation and current decisions before approval. ${p.reason}`});
+    }
+    if(this.state.captures.length+this.state.agentCaptures.length+captures.length>5000)throw new Error('CAPTURE_LIMIT');
+    if(this.state.memories.length+proposals.length>10000)throw new Error('MEMORY_LIMIT');
+    const candidateIds=proposals.map(p=>this.propose(p).id);
+    this.state.captures.push(...captures);
+    return {imported:captures.length,duplicates,candidateIds,reviewRequired:true};
+  }
   addProject(name: string) {
     const p = stateSchema.shape.projects.element.parse({ id: randomUUID(), name });
     if (this.state.projects.length >= 1000) throw new Error('PROJECT_LIMIT');
@@ -219,7 +251,7 @@ export class MemoryEngine {
       const capture=m.source.reference.startsWith('capture:')&&m.scope.type==='project'?this.state.captures.find(c=>`capture:${c.id}`===m.source.reference&&c.projectId===projectId):undefined;
       const conflict=m.status==='candidate'?this.state.memories.find(old=>old.status==='active'&&old.key===m.key&&sameScope(old.scope,m.scope)):undefined;
       const agentCapture=m.scope.type==='project'?this.state.agentCaptures.find(c=>`agent_capture:${c.id}`===m.source.reference&&c.projectId===projectId):undefined;
-      const result={...structuredClone(m),...(capture?{captureSource:{url:capture.url,role:capture.role,capturedAt:capture.capturedAt}}:{}),...(agentCapture?{agentSource:{client:agentCapture.client,sessionId:agentCapture.sessionId,turnId:agentCapture.turnId,role:agentCapture.role,capturedAt:agentCapture.capturedAt}}:{}),...(conflict?{conflict:{id:conflict.id,value:conflict.value,...(conflict.applicability?{applicability:structuredClone(conflict.applicability)}:{})}}:{})};
+      const result={...structuredClone(m),...(capture?{captureSource:{url:capture.url,role:capture.role,capturedAt:capture.capturedAt,...(capture.importSource?{importSource:structuredClone(capture.importSource)}:{})}}:{}),...(agentCapture?{agentSource:{client:agentCapture.client,sessionId:agentCapture.sessionId,turnId:agentCapture.turnId,role:agentCapture.role,capturedAt:agentCapture.capturedAt}}:{}),...(conflict?{conflict:{id:conflict.id,value:conflict.value,...(conflict.applicability?{applicability:structuredClone(conflict.applicability)}:{})}}:{})};
       const size=JSON.stringify(result).length;if(used+size>32000)break;used+=size;memories.push(result);
     }
     return {memories,total:found.length,nextOffset:offset+memories.length<found.length?offset+memories.length:null};

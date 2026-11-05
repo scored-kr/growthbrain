@@ -21,7 +21,7 @@ test('human correction preserves scope/source/history and remains pending until 
  assert.throws(()=>engine.review(next.id,'approve'),/EXPLICIT_SUPERSESSION_REQUIRED/);
  engine.review(next.id,'approve',prior);
  assert.equal(engine.getContext({projectId:project.id}).conditions[0].value,'user corrected');
- assert.equal(new MemoryEngine(engine.snapshot()).snapshot().version,5);
+ assert.equal(new MemoryEngine(engine.snapshot()).snapshot().version,6);
 });
 
 test('retirement excludes current memory without resurrecting superseded decisions; defaults remain explicit',()=>{
@@ -45,10 +45,10 @@ test('retirement excludes current memory without resurrecting superseded decisio
  assert.deepEqual(new MemoryEngine(engine.snapshot()).getContext({projectId:project.id}).conditions,[]);
 });
 
-test('v1/v2 migrate to v5 but invalid corrections and retirement evidence fail closed',()=>{
+test('v1/v2 migrate to v6 but invalid corrections and retirement evidence fail closed',()=>{
  const {engine,project}=fixture();const {agentBindings,agentCaptures,projectTriggers,...v2}=engine.snapshot();v2.version=2;
- assert.equal(new MemoryEngine(v2).snapshot().version,5);
- const v1={version:1,ownerId:randomUUID(),projects:[],memories:[]};assert.equal(new MemoryEngine(v1).snapshot().version,5);
+ assert.equal(new MemoryEngine(v2).snapshot().version,6);
+ const v1={version:1,ownerId:randomUUID(),projects:[],memories:[]};assert.equal(new MemoryEngine(v1).snapshot().version,6);
  const scope={type:'project',projectId:project.id};
  const first=engine.propose(proposal(scope,'tone','first'));
  const next=engine.correctCandidate(project.id,first.id,'second','clarification');

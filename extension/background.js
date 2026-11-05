@@ -1,5 +1,6 @@
 const sites=['chatgpt.com','claude.ai'];
 const popupUrl=chrome.runtime.getURL('popup.html');
+const importUrl=chrome.runtime.getURL('import.html');
 const host='com.growthbrain.local';
 const controls=new Map(),revisions=new Map();let storageQueue=Promise.resolve();
 // Ephemeral operational metadata only: no conversation text, URLs or project names.
@@ -47,6 +48,12 @@ export async function dispatch(message,sender){
       const known=['VAULT_LOCKED','LOCAL_VAULT_UNAVAILABLE','CAPTURE_NOT_CONSENTED','CAPTURE_LIMIT','MEMORY_LIMIT','VAULT_SIZE_LIMIT'];
       if((revisions.get(site)??0)===token)captureStatus.set(site,{state:'failed',at:new Date().toISOString(),error:known.includes(error.message)?error.message:'REQUEST_FAILED'});throw error;
     }
+  }
+  if(sender.id===chrome.runtime.id&&sender.url===importUrl){
+    if(message.type==='IMPORT_PROJECTS')return await native('list_projects',{});
+    if(message.type==='IMPORT_CREATE_PROJECT')return await native('create_project',{name:message.name});
+    if(message.type==='IMPORT_CHAT')return await native('import_chat',message.params);
+    throw Error('INVALID_REQUEST');
   }
   if(sender.id!==chrome.runtime.id||sender.url!==popupUrl)throw Error('POPUP_REQUIRED');
   if(message.type==='PROJECTS'){

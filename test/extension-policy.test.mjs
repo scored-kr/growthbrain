@@ -16,7 +16,7 @@ async function harness(native=async()=>({result:{}})){
 }
 test('content scripts cannot manage consent/review and page capture cannot forge source or project',async()=>{
  const h=await harness();const project=randomUUID();
- for(const type of ['REVIEW','CORRECT','RETIRE'])await assert.rejects(h.dispatch({type},h.page),/POPUP_REQUIRED/);
+ for(const type of ['REVIEW','CORRECT','RETIRE','IMPORT_CHAT','IMPORT_CREATE_PROJECT'])await assert.rejects(h.dispatch({type},h.page),/POPUP_REQUIRED/);
  await assert.rejects(h.dispatch({type:'ENABLE',site:'chatgpt.com',projectId:project},h.page),/POPUP_REQUIRED/);
  await h.dispatch({type:'ENABLE',site:'chatgpt.com',projectId:project},h.popup);
  const capture={type:'CAPTURE',url:'https://chatgpt.com/c/test',projectId:randomUUID(),message:{messageId:'1',role:'user',text:'synthetic'}};
@@ -71,4 +71,15 @@ test('capture status follows acknowledgments, contains no content, and ignores a
  await h.dispatch({type:'ENABLE',site:'chatgpt.com',projectId:randomUUID()},h.popup);release();await pending;
  assert.equal((await h.dispatch({type:'PROJECTS'},h.popup)).capture['chatgpt.com'],undefined);
  assert.ok(!JSON.stringify(h.state).includes('PRIVATE_CAPTURE_MARKER'));
+});
+
+test('only the dedicated import page can create projects or import; plaintext never enters browser storage',async()=>{
+ const h=await harness(),sender={id:h.popup.id,url:h.popup.url.replace('popup.html','import.html')};
+ const params={projectId:randomUUID(),confirmed:true,conversationId:'synthetic',title:'PRIVATE_IMPORT_TITLE',branchLeafId:'leaf',messages:[{id:'message',role:'user',text:'PRIVATE_IMPORT_TEXT',createdAt:null}]};
+ await assert.rejects(h.dispatch({type:'IMPORT_CHAT',params},h.popup),/INVALID_REQUEST/);
+ await assert.rejects(h.dispatch({type:'IMPORT_CHAT',params},{...sender,id:'b'.repeat(32)}),/POPUP_REQUIRED/);
+ await assert.rejects(h.dispatch({type:'REVIEW'},sender),/INVALID_REQUEST/);
+ await h.dispatch({type:'IMPORT_CHAT',params},sender);assert.equal(h.calls.at(-1).method,'import_chat');assert.deepEqual(h.calls.at(-1).params,params);
+ await h.dispatch({type:'IMPORT_CREATE_PROJECT',name:'Selected project'},sender);assert.equal(h.calls.at(-1).method,'create_project');
+ assert.deepEqual(h.state,{});
 });

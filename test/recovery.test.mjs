@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import { VaultSession } from '../dist/vault.js';
 import { startBroker, callBroker } from '../dist/broker.js';
 import { proposal, approve } from './helpers.mjs';
+import {chatExport} from './fixtures/chatgpt-export.mjs';
+import {readChatGPTExport,selectChatGPTConversation,importBatches} from '../extension/chat-import.js';
 
 async function fixture(t) {
  const root=await mkdtemp(join(tmpdir(),'gb-recovery-'));
@@ -22,6 +24,8 @@ async function fixture(t) {
 test('v1 opt-in migration, password-loss recovery and fresh-key restoration preserve memory',async t=>{
  const f=await fixture(t), original=join(f.directory,'vault.json'), oldBackup=join(f.root,'before.enc');
  await f.session.mutate(e=>approve(e,proposal({type:'project',projectId:f.project.id},'format','RECOVERY_CAMPAIGN_ONLY',{applicability:{taskTypes:['campaign']}})));
+ const imported=selectChatGPTConversation(readChatGPTExport(JSON.stringify([chatExport()]))[0]);
+ await f.session.mutate(e=>e.importChat(importBatches(imported,f.project.id)[0]));
  await f.session.exportBackup(oldBackup);
  assert.equal(JSON.parse(await readFile(original,'utf8')).version,1);
  const result=await f.session.issueRecovery(f.password,f.keyFile);
@@ -38,6 +42,8 @@ test('v1 opt-in migration, password-loss recovery and fresh-key restoration pres
  assert.equal(recovered.read(e=>e.getContext({projectId:f.project.id})).conditions[0].value,'RECOVERY_PRIVATE_MEMORY');
  assert.ok(!JSON.stringify(recovered.getContext({projectId:f.project.id,taskType:'translation'})).includes('RECOVERY_CAMPAIGN_ONLY'));
  assert.equal(recovered.getContext({projectId:f.project.id,taskType:'campaign'}).conditions.find(m=>m.key==='format').value,'RECOVERY_CAMPAIGN_ONLY');
+ assert.equal(recovered.read(e=>e.snapshot().captures[0].importSource.conversationId),imported.conversationId);
+ assert.equal((await recovered.mutate(e=>e.importChat(importBatches(imported,f.project.id)[0]))).duplicates,4);
  await recovered.close();
  assert.equal(JSON.parse(await readFile(join(target,'vault.json'),'utf8')).recovery,undefined);
  await assert.rejects(VaultSession.open(target,f.owner,f.password),/UNLOCK_FAILED/);

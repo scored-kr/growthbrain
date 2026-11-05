@@ -15,7 +15,7 @@ This is review context, not a claim of verified market traction.
 - Alternatives: native AI project/memory features, project instructions, reusable briefs and manual workflows. MCP/encryption/indexing alone do not establish a moat.
 - Business model/pricing: the 2026-11-05 PDF proposes monthly KRW14,900 or annual KRW142,800 (KRW11,900/month equivalent), a 7-day trial and later team/add-on plans. These are document hypotheses, not approved live prices or observed willingness to pay. No known actual MRR, ARR, CAC, retention, churn or LTV. Support time is a material cost hypothesis, even with local compute.
 - Team, founder background, runway, financing history/goal, market size: TBD. Do not fill these with zero or invented numbers.
-- Current goal: complete one supported client's real MCP personalization flow; validate a narrow pilot's benefit and setup burden; repair proven privacy lifecycle defects.
+- Current goal: complete real MCP personalization in both ChatGPT and Claude general web chat; coding-client integrations are supplemental; validate a narrow pilot's benefit and setup burden; repair proven privacy lifecycle defects.
 - Constraints: plaintext and indexes on the user's device; server ciphertext only; equal memory protection across free/paid; explicit consent and approval; no project-to-global promotion; no secrets in AI/MCP/logs/Git. Cloud executor is not the user's device.
 - Not authorized by this context: production deployment, customer outreach, fundraising submissions, opening real customer vaults or resetting existing server data.
 
@@ -34,3 +34,9 @@ This is review context, not a claim of verified market traction.
 - Current code resolves scope and same-key overrides, retains provenance, and excludes inactive records. Chapter26 adds explicit approved applicability for five task types, consistently filtered in recall/search before project overrides; missing task information excludes conditional records. General natural-language applicability, semantic conflicts across keys, and an outcome/correction measurement loop remain unimplemented. See docs/preference-applicability.md. Retrieval scores are neither preference strength nor confidence.
 - Evaluate a complete first-client flow, then portability. Competitor pages are claims, not measured head-to-head wins. No native AI/competitor account setup or real-user evaluation was completed by this review.
 - Preserve current request > project > common defaults, local encryption, explicit approval, and no project-to-global promotion. Do not infer sensitive personality traits or automatically confirm preferences from repetition.
+
+## General-chat MVP clarification — 2026-11-05
+
+- Founder explicitly confirmed both ChatGPT and Claude general chat as the initial MVP. Do not ask the founder to choose just one or substitute Codex/Claude Code acceptance. Preferences remain the North Star.
+- Chapter27 implements local export-file onboarding for both providers: selection/preview/project/consent, encrypted historical captures and pending project candidates. Claude flat exports without branch metadata require explicit acknowledgement and retain an unverified-branch label.
+- Import and protocol success do not establish web-chat personalization. The existing stdio server needs a supported, authenticated web-client connection preserving device-side decryption/search; account permissions and actual tool/output evidence remain necessary. See docs/chat-history-import.md.

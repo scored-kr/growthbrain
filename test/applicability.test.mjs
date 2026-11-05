@@ -76,7 +76,7 @@ test('invalid applicability and legacy records with undeclared new fields fail c
   assert.equal(migrated.getContext({projectId:project.id}).conditions[0].memoryId,id);
 });
 
-test('v4 ciphertext is preserved before conditional v5 writes and survives encrypted export/restore',async()=>{
+test('v4 ciphertext is preserved before conditional writes and survives encrypted export/restore',async()=>{
   const root=await mkdtemp(join(tmpdir(),'gb-task-migrate-')),directory=join(root,'vault'),owner=randomUUID(),password=randomBytes(24).toString('base64url');
   const old=MemoryEngine.empty(owner),project=old.addProject('PRIVATE_CONDITIONAL_PROJECT');
   const originalState=old.snapshot();originalState.version=4;

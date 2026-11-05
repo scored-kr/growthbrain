@@ -30,7 +30,7 @@ test('agent capture requires explicit workspace consent and separates clients, p
   assert.throws(()=>engine.captureAgent(input(changed,{role:'assistant',text:'late old response'})),/SESSION_SCOPE_MISMATCH/);
   assert.throws(()=>engine.captureAgent(input(changed,{turnId:'new-turn'})),/SESSION_SCOPE_MISMATCH/);
   engine.captureAgent(input(changed,{sessionId:'new-session'}));
-  assert.equal(new MemoryEngine(engine.snapshot()).snapshot().version,5);
+  assert.equal(new MemoryEngine(engine.snapshot()).snapshot().version,6);
 });
 
 test('paused and resumed turns cannot attach a delayed answer without a captured prompt in the new consent',()=>{

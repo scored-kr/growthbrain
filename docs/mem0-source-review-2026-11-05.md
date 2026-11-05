@@ -99,3 +99,7 @@ workspace/project가 현재 binding과 다르면 `AGENT_SESSION_SCOPE_MISMATCH`�
 후속 챕터26: 위 업무별 조건/동일 필터/후보 수정 조건 보존을 구현하고 전체 test:local을 통과했다.
 [구현 계약과 한계](preference-applicability.md)를 따른다. 내부 상태v5 전환 백업/복구와 검토 UI를
 포함하며 일반 의미 충돌/실제 AI 결과 계측은 남아 있다. Mem0 코드를 복사한 구현이 아니다.
+
+챕터27 후속: Mem0 CLI JSON import와 Claude transcript 처리 아이디어를 검토한 뒤,
+우리 초기 MVP인 **ChatGPT·Claude 일반 채팅 export**의 선택 가져오기를 직접 구현했다.
+Mem0의 원격 전송/직접 확정 저장을 도입하지 않았다. [실제 계약](chat-history-import.md)을 참고한다.

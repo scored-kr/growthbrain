@@ -4,12 +4,15 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { agentCaptureInputSchema, agentClientSchema, workspaceSchema, captureInputSchema, consentSchema, contextSchema, identifier, proposalSchema, searchSchema } from './model.js';
 import { privateDirectory, type VaultSession } from './vault.js';
+import { chatImportInputSchema } from './model.js';
 
 const requestSchema = z.discriminatedUnion('method', [
   z.object({ method: z.literal('get_context'), params: contextSchema }).strict(),
   z.object({ method: z.literal('search_memory'), params: searchSchema }).strict(),
   z.object({ method: z.literal('propose_memory'), params: proposalSchema }).strict(),
   // Local native-messaging/UI operations; these are never registered as MCP tools.
+  z.object({method:z.literal('import_chat'),params:chatImportInputSchema}).strict(),
+  z.object({method:z.literal('create_project'),params:z.object({name:z.string().trim().min(1).max(200)}).strict()}).strict(),
   z.object({method:z.literal('get_agent_binding'),params:z.object({client:agentClientSchema,workspace:workspaceSchema,sessionId:agentCaptureInputSchema.shape.sessionId}).strict()}).strict(),
   z.object({method:z.literal('capture_agent'),params:agentCaptureInputSchema}).strict(),
   z.object({method:z.literal('list_projects'),params:z.object({}).strict()}).strict(),
@@ -25,6 +28,7 @@ const MAX_RESPONSE = 256 * 1024;
 const safeErrors = new Set(['PROJECT_NOT_FOUND','MEMORY_LIMIT','INVALID_SUPERSESSION','VAULT_LOCKED','REQUEST_CONDITION_LIMIT','VAULT_SIZE_LIMIT','CAPTURE_NOT_CONSENTED','CAPTURE_LIMIT','CAPTURE_URL_MISMATCH','EXPLICIT_SUPERSESSION_REQUIRED','STALE_SUPERSESSION','CANDIDATE_NOT_FOUND','ACTIVE_MEMORY_NOT_FOUND','AGENT_CAPTURE_NOT_CONSENTED','STALE_AGENT_CONSENT','AGENT_SESSION_SCOPE_MISMATCH','AGENT_TURN_NOT_CAPTURED']);
 export const safeError = (e: unknown) => e instanceof Error && safeErrors.has(e.message) ? e.message : 'REQUEST_FAILED';
 for (const code of ['INVALID_REQUEST', 'INVALID_RESPONSE', 'REQUEST_TOO_LARGE', 'RESPONSE_TOO_LARGE']) safeErrors.add(code);
+safeErrors.add('IMPORT_PROJECT_MISMATCH');
 
 export function errorNextAction(code: string): string {
   if (code === 'REQUEST_TOO_LARGE' || code === 'REQUEST_CONDITION_LIMIT') return 'Reduce the number or length of explicit request conditions and retry. Do not split a write into automatic duplicate proposals.';
@@ -69,6 +73,8 @@ export async function startBroker(vault: VaultSession, directory: string) {
         else if(method==='list_projects')result=vault.read(e=>({projects:e.snapshot().projects,settings:e.snapshot().captureSettings}));
         else if(method==='configure_capture')result=await vault.mutate(e=>e.configureCapture(params));
         else if(method==='capture')result=await vault.mutate(e=>e.capture(params));
+        else if(method==='import_chat')result=await vault.mutate(e=>e.importChat(params));
+        else if(method==='create_project')result=await vault.mutate(e=>e.addProject(params.name));
         else if(method==='get_agent_binding')result=vault.read(e=>e.getAgentBinding(params.client,params.workspace,params.sessionId));
         else if(method==='capture_agent')result=await vault.mutate(e=>e.captureAgent(params));
         else if(method==='list_memories')result=vault.read(e=>e.listMemories(params.projectId,params.status,params.offset,params.limit));

@@ -7,9 +7,16 @@ export const captureInputSchema=z.object({
   site:siteSchema, projectId:identifier, url:z.string().url().max(2048),
   messageId:z.string().min(1).max(160), role:z.enum(['user','assistant']), text:z.string().trim().min(1).max(12000),
 }).strict();
-export const captureSchema=captureInputSchema.extend({
+const historicalCaptureSchema=captureInputSchema.extend({
   id:identifier, contentHash:z.string().regex(/^[0-9a-f]{64}$/), capturedAt:z.string().datetime(), previousId:identifier.optional(),
 }).strict();
+const importId=z.string().regex(/^[a-zA-Z0-9_-]{1,160}$/);
+export const chatImportSourceSchema=z.object({provider:z.enum(['chatgpt-export','claude-export']),branchMode:z.enum(['current','unverified-flat']),conversationId:importId,title:z.string().min(1).max(500),branchLeafId:importId.nullable(),messageId:importId,createdAt:z.string().datetime().nullable()}).strict();
+export const captureSchema=historicalCaptureSchema.extend({text:z.string().min(1).max(12000).refine(t=>!!t.trim()),importSource:chatImportSourceSchema.optional()}).strict();
+export const chatImportInputSchema=z.object({
+  projectId:identifier,confirmed:z.literal(true),allowUnverifiedBranch:z.boolean(),provider:z.enum(['chatgpt-export','claude-export']),branchMode:z.enum(['current','unverified-flat']),conversationId:importId,title:z.string().min(1).max(500),branchLeafId:importId.nullable(),
+  messages:z.array(z.object({id:importId,role:z.enum(['user','assistant']),text:z.string().min(1).max(12000).refine(t=>!!t.trim()),createdAt:z.string().datetime().nullable()}).strict()).min(1).max(20),
+}).strict().refine(v=>new Set(v.messages.map(m=>m.id)).size===v.messages.length,'Duplicate message IDs').refine(v=>v.branchMode==='current'?v.branchLeafId!==null&&!v.allowUnverifiedBranch:v.provider==='claude-export'&&v.branchLeafId===null&&v.allowUnverifiedBranch,'Explicit branch review required');
 export const consentSchema=z.object({site:siteSchema,projectId:identifier,enabled:z.boolean()}).strict();
 export const agentClientSchema=z.enum(['codex','claude-code']);
 export const workspaceSchema=z.string().min(1).max(4096).refine(p=>isAbsolute(p)&&normalize(p)===p&&p!==parse(p).root,'Select an absolute project directory');
@@ -65,12 +72,13 @@ const legacyStateSchema = z.object({
   memories: z.array(legacyMemorySchema).max(10000),
 }).strict();
 const captureStateSchema=legacyStateSchema.extend({
-  version:z.literal(2), captures:z.array(captureSchema).max(5000), captureSettings:z.array(consentSchema).max(2),
+  version:z.literal(2), captures:z.array(historicalCaptureSchema).max(5000), captureSettings:z.array(consentSchema).max(2),
 }).strict();
 const reviewStateSchema=captureStateSchema.extend({version:z.literal(3),memories:z.array(historicalMemorySchema).max(10000)}).strict();
 const agentStateSchema=reviewStateSchema.extend({version:z.literal(4),agentBindings:z.array(agentBindingSchema).max(1000),agentCaptures:z.array(agentCaptureSchema).max(5000),projectTriggers:z.array(projectTriggerSchema).max(1000)}).strict();
-export const STATE_VERSION=5;
-export const stateSchema=agentStateSchema.extend({version:z.literal(STATE_VERSION),memories:z.array(memorySchema).max(10000)}).strict();
+const taskStateSchema=agentStateSchema.extend({version:z.literal(5),memories:z.array(memorySchema).max(10000)}).strict();
+export const STATE_VERSION=6;
+export const stateSchema=taskStateSchema.extend({version:z.literal(STATE_VERSION),captures:z.array(captureSchema).max(5000)}).strict();
 export function parseState(state: unknown) {
   const additions={agentBindings:[],agentCaptures:[],projectTriggers:[]};
   if(typeof state==='object' && state!==null && 'version' in state && state.version===1) {
@@ -84,6 +92,9 @@ export function parseState(state: unknown) {
   }
   if(typeof state==='object' && state!==null && 'version' in state && state.version===4) {
     return stateSchema.parse({...agentStateSchema.parse(state),version:STATE_VERSION});
+  }
+  if(typeof state==='object' && state!==null && 'version' in state && state.version===5) {
+    return stateSchema.parse({...taskStateSchema.parse(state),version:STATE_VERSION});
   }
   return stateSchema.parse(state);
 }
