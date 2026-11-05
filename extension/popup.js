@@ -1,5 +1,7 @@
 const $=id=>document.getElementById(id);let local={},capture={},projects=[],nextOffset=null,viewGeneration=0;
 function status(message){$('status').textContent=message}
+const taskLabels={writing:'글쓰기',translation:'번역',campaign:'캠페인',analysis:'분석',coding:'코딩'};
+function applicabilityLabel(memory){return memory.applicability?`적용 업무: ${memory.applicability.taskTypes.map(t=>taskLabels[t]??t).join(', ')} (다른 업무·미지정 시 제외)`:'적용 업무: 모든 업무의 기본값';}
 async function send(message){const response=await chrome.runtime.sendMessage(message);if(!response?.ok)throw Error(response?.error??'연결 실패');return response.result}
 const errors={VAULT_LOCKED:'금고가 잠겨 있습니다. 별도 로컬 터미널에서 잠금을 해제하세요.',LOCAL_VAULT_UNAVAILABLE:'로컬 연결 프로그램을 설치하고 금고를 열어주세요.',EXPLICIT_SUPERSESSION_REQUIRED:'같은 조건의 확정 기억이 있습니다. 교체할 기존 조건을 선택한 뒤 다시 승인하세요.'};
 async function run(action){try{await action()}catch(e){status(errors[e.message]??e.message)}}
@@ -27,11 +29,12 @@ async function memories(offset=0){
     const text=document.createElement('pre');text.textContent=m.value;
     const source=document.createElement('small');source.textContent=`출처: ${m.captureSource?.url??m.source.reference}\n원문: ${m.source.excerpt}\n이유: ${m.reason}`;
     card.append(heading,text,source);
+    const applicability=document.createElement('small');applicability.textContent=applicabilityLabel(m);card.append(applicability);
     if(m.correctionOf){const history=document.createElement('small');history.textContent=`사용자 수정 후보 · 이전 항목: ${m.correctionOf}`;card.append(history)}
     if(m.status==='retired'){const history=document.createElement('small');history.textContent=`사용 중지: ${m.retiredAt}\n사유: ${m.retirementReason}`;card.append(history)}
     if(m.status==='candidate'){
       const replace=document.createElement('select');replace.setAttribute('aria-label','교체할 기억');replace.append(new Option('기존 조건 교체 안 함',''));
-      if(m.conflict)replace.append(new Option(`이전 조건을 교체: ${m.conflict.value}`,m.conflict.id));
+      if(m.conflict)replace.append(new Option(`이전 조건을 교체: ${m.conflict.value} · ${applicabilityLabel(m.conflict)}`,m.conflict.id));
       for(const [label,decision] of [['승인','approve'],['기각','reject']]){const button=document.createElement('button');button.textContent=label;button.onclick=()=>run(async()=>{button.disabled=true;try{await send({type:'REVIEW',projectId,id:m.id,decision,...(decision==='approve'&&replace.value.trim()?{supersedesId:replace.value.trim()}:{})});status(decision==='approve'?'승인 완료':'기각 완료');await memories()}finally{button.disabled=false}});card.append(button)}
       if(m.conflict)card.append(replace);
     }

@@ -52,7 +52,7 @@ try{
    if(message.type==='PROJECTS')return{ok:true,result:{projects:[{id:projectId,name:'Synthetic project'},{id:'44444444-4444-4444-8444-444444444444',name:'Other project'}],local:{}}};
    if(message.type==='MEMORIES'&&fixture.defer&&message.projectId===projectId)await new Promise(resolve=>fixture.release=resolve);
    if(message.type==='MEMORIES'&&message.projectId!==projectId)return{ok:true,result:{memories:[],nextOffset:null}};
-   if(message.type==='MEMORIES')return{ok:true,result:{memories:message.status==='all'||message.status===fixture.status?[{id:fixture.id,key:'tone',status:fixture.status,scope:{type:'project',projectId},value:fixture.value,source:{reference:'synthetic:source',excerpt:'<script>bad</script>'},reason:'Synthetic feedback',correctionOf:fixture.correctionOf,retiredAt:fixture.retiredAt,retirementReason:fixture.retirementReason}]:[],nextOffset:null}};
+   if(message.type==='MEMORIES')return{ok:true,result:{memories:message.status==='all'||message.status===fixture.status?[{id:fixture.id,key:'tone',status:fixture.status,scope:{type:'project',projectId},value:fixture.value,source:{reference:'synthetic:source',excerpt:'<script>bad</script>'},reason:'Synthetic feedback',applicability:{taskTypes:['campaign']},correctionOf:fixture.correctionOf,retiredAt:fixture.retiredAt,retirementReason:fixture.retirementReason}]:[],nextOffset:null}};
    if(message.type==='CORRECT'){fixture.correctionOf=fixture.id;fixture.id='33333333-3333-4333-8333-333333333333';fixture.value=message.value;return{ok:true,result:{status:'candidate'}}}
    if(message.type==='RETIRE'){fixture.status='retired';fixture.retiredAt=new Date().toISOString();fixture.retirementReason=message.reason;return{ok:true,result:{status:'retired'}}}
    if(message.type==='REVIEW'){fixture.status='active';return{ok:true,result:{status:'active'}}}
@@ -63,6 +63,7 @@ try{
  });
  await popup.goto('https://growthbrain.test/popup.html');await popup.selectOption('#project','11111111-1111-4111-8111-111111111111');
  await popup.locator('article').waitFor();assert.equal(await popup.locator('article img').count(),0);assert.equal(await popup.evaluate(()=>window.injected),undefined);
+ assert.match(await popup.locator('article').textContent(),/적용 업무: 캠페인.*다른 업무·미지정 시 제외/);
  await popup.evaluate(()=>fixture.value='예산: 50만원\n부가세 포함이고 월 단위야.');await popup.click('#refresh');
  await popup.waitForFunction(()=>document.querySelector('article pre')?.textContent===fixture.value);
  assert.equal(await popup.locator('article pre').textContent(),'예산: 50만원\n부가세 포함이고 월 단위야.');
@@ -78,6 +79,7 @@ try{
  assert.equal(await popup.evaluate(()=>fixture.status),'candidate');
  assert.equal(await popup.evaluate(()=>fixture.calls.some(c=>c.type==='REVIEW')),false);
  await popup.getByText('사용자 수정 후보',{exact:false}).waitFor();
+ assert.match(await popup.locator('article').textContent(),/적용 업무: 캠페인.*다른 업무·미지정 시 제외/);
  await popup.getByRole('button',{name:'승인',exact:true}).click();await popup.waitForFunction(()=>fixture.status==='active');
  await popup.selectOption('#filter','active');await popup.getByRole('button',{name:'사용 중지',exact:true}).click();
  await popup.getByLabel('사용 중지 사유',{exact:true}).fill('No longer applicable');
@@ -92,5 +94,5 @@ try{
  await popup.waitForFunction(()=>fixture.calls.at(-1)?.type==='MEMORIES'&&fixture.calls.at(-1).projectId==='44444444-4444-4444-8444-444444444444');
  await popup.evaluate(async()=>{fixture.release();await new Promise(resolve=>setTimeout(resolve,0));});
  assert.equal(await popup.locator('article').count(),0);
- console.log(JSON.stringify({kind:'real Chromium DOM/UI fixtures with mocked Chrome API',browser:browser.version(),chatgptAdapter:true,claudeAdapter:true,stableIdRequired:true,dedupPauseResume:true,unlockRetryWithoutDomChange:true,permissionDenial:true,reviewClick:true,correctionStaysPending:true,retirementClick:true,htmlEscaping:true,wholeQualificationRendered:true,staleProjectResponseIgnored:true,installedExtensionVerified:false}));
+ console.log(JSON.stringify({kind:'real Chromium DOM/UI fixtures with mocked Chrome API',browser:browser.version(),chatgptAdapter:true,claudeAdapter:true,stableIdRequired:true,dedupPauseResume:true,unlockRetryWithoutDomChange:true,permissionDenial:true,reviewClick:true,correctionStaysPending:true,retirementClick:true,htmlEscaping:true,wholeQualificationRendered:true,taskApplicabilityRendered:true,staleProjectResponseIgnored:true,installedExtensionVerified:false}));
 }finally{await browser.close()}

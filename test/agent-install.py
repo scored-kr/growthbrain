@@ -37,6 +37,8 @@ class AgentInstallerTest(unittest.TestCase):
             self.assertNotEqual(run('install').returncode,0)
             self.assertEqual(run('upgrade').returncode,0);self.assertEqual(run('upgrade').returncode,0)
             self.assertEqual((skill/'SKILL.md').read_bytes(),saved);self.assertEqual(config.read_bytes(),before)
+            (skill/'SKILL.md').write_bytes(Path('test/fixtures/codex-skill-v3.md').read_bytes())
+            self.assertEqual(run('upgrade').returncode,0);self.assertEqual((skill/'SKILL.md').read_bytes(),saved)
             (skill/'SKILL.md').write_bytes(saved);self.assertEqual(run('remove').returncode,0)
             self.assertEqual(json.loads(config.read_text()),original)
 

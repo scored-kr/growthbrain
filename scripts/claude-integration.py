@@ -29,7 +29,7 @@ if 'growth_brain' in servers and servers['growth_brain']!=owned:sys.exit('Modifi
 if target.exists() and not target.is_file():sys.exit('Modified Growth Brain skill. Nothing changed.')
 installed=target.read_bytes() if target.exists() else None
 if installed is not None and installed!=source:
-    if hashlib.sha256(installed).hexdigest()!='fcaeb51c45ff344ae1b9892cac02083b4c104e7c870890e04ec6ae63b523925f':sys.exit('Modified Growth Brain skill. Nothing changed.')
+    if hashlib.sha256(installed).hexdigest() not in {'fcaeb51c45ff344ae1b9892cac02083b4c104e7c870890e04ec6ae63b523925f','1442eda588905bc778488e990240152812518a7c2133466c4bc7f2b2925b30ff'}:sys.exit('Modified Growth Brain skill. Nothing changed.')
     if a.action=='install':sys.exit('Known older skill; run upgrade. Nothing changed.')
 if a.skill_dir.exists() and (not a.skill_dir.is_dir() or set(a.skill_dir.iterdir())-{target}):sys.exit('Unrelated skill files. Nothing changed.')
 if a.action=='upgrade':

@@ -63,8 +63,8 @@ get_documents(master_spec) → get_next_task 순서를 수행한다. 세 조회�
 
 같은 날 후속 사용자 명확화: **선호도 기반 개인화가 최상위 목표**이며 맥락 인계는 그 결과를 이어 주는 수단이다.
 [개인화 중심 비교](preference-personalization-review-2026-11-05.md), [평가안](personalization-evaluation.md),
-startup-context의 최신 항목을 우선한다. 업무별 적용/예외, 다른 key의 의미 충돌, 교정 후 결과 측정은
-현행 key 우선순위·색인 구현과 별도의 후속 작업이다. 고정 프로필/경쟁사 대조 및 실제 AI 결과는 아직 미검증이다.
+startup-context의 최신 항목을 우선한다. 챕터26에서 명시적 업무5종 적용 조건을 구현했다. 일반 자연어
+적용/예외, 다른 key의 의미 충돌, 교정 후 결과 측정은 후속이다. 고정 프로필/경쟁사 대조 및 실제 AI 결과는 미검증이다.
 챕터24 검토 보드 `bdbc6f07-5d35-4f06-81e7-417621fc5f95`. 기존 인계 작업은 폐기하지 않는다.
 선호도 적용/예외·교정 계약과 실제 결과 검증 후속 작업은 `b9133f0f-1c34-461d-927c-3a8cfc2532bc` (todo)다.
 
@@ -72,3 +72,11 @@ startup-context의 최신 항목을 우선한다. 업무별 적용/예외, 다�
 구분하고 선호도 설계에 활용할 아이디어를 기록했다. 옛 세션 재개 시 프로젝트 재바인딩을 확인하는
 훅 경계도 보완했다. 내부 get_agent_binding은 sessionId가 필수다. Node67/67과 실제 훅/IPC로 검증했고
 설치된 실제 AI 세션의 개인화 완료로 해석하지 않는다.
+
+챕터25 SHA `b3394d395beba4ef22525e03b42954042fcf1963`은 push/원격SHA/새clone HEAD/fsck 확인을 마쳤다.
+챕터26 [업무별 선호도](preference-applicability.md): writing/translation/campaign/analysis/coding의
+명시 조건을 조회/검색/후보 수정/검토 UI/CLI/제품 스킬에 연결했다. 내부 상태는 v5이며 v1~v4
+전환 전 암호문을 보존한다. envelope v1/v2와 별개이고 Git revert는 사용자 데이터를 되돌리지 않는다.
+`npm run test:local` 전체 통과(Node72/72 포함). 2026-11-05 실제 test:codex는 인증 갱신401,
+get_context0회/결과물 없음으로 재확인했다. 브라우저 정책·Claude 실제 실행·원격 검증은 미완료 유지.
+챕터26 보드 `20c6e24f-bda7-43c9-ae90-f74f02763252`. 위 b913 후속 전체가 완료된 것은 아니다.

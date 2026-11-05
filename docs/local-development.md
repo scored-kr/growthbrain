@@ -26,6 +26,7 @@ npm run vault -- serve
 - `memories`: 상태·범위·출처·변경 사유와 함께 전체 기억을 확인한다.
 - `backup`: 새 파일 경로에 암호문 백업을 저장한다. 기존 파일을 덮어쓰지 않는다.
 - `propose`: 명시적으로 공통 또는 프로젝트 범위를 선택해 기억 후보를 만든다.
+- `propose-task`: 적용할 업무 종류까지 명시한 후보를 만든다. [업무별 조건](preference-applicability.md)을 따른다.
 - `candidates`, `review`: 후보·출처·변경 대상을 보고 APPROVE 또는 REJECT를 입력한다.
 - `correct`: 값과 사유를 확인하고 SAVE로 새 승인 대기 후보를 만든다. 원래 후보와 출처는 보존한다.
 - `retire`: 확정 기억을 RETIRE로 사용 중지한다. 이력은 보존하고 조회·검색에서 제외한다.
@@ -54,16 +55,21 @@ Codex/Claude Code 자동 대화 수집은 [에이전트 훅 설치·동의](agen
 기본 소켓: `~/.local/share/growth-brain/memory.sock`.
 별도 금고 경로 사용 시 `GROWTH_BRAIN_SOCKET`에 해당 소켓 경로를 지정한다. 경로는 비밀값이 아니다.
 
-- `get_context(projectId?, query?, requestConditions?, maxCharacters?)`: 공통을 항상 먼저 읽으며
+- `get_context(projectId?, query?, taskType?, requestConditions?, maxCharacters?)`: 공통을 항상 먼저 읽으며
   명시 프로젝트 또는 단일 사용자 트리거에 해당하는 프로젝트를 추가 조회한다. 현재 명시 요청을
   일회성으로 우선 적용한다. 생략 시 `omittedCount`, 모호한 선택은 `routing`에 표시한다.
-- `search_memory(projectId?, query, limit?, requestConditions?)`: 공통/프로젝트별 로컬 역색인 검색.
+- `search_memory(projectId?, query, taskType?, limit?, requestConditions?)`: 공통/프로젝트별 로컬 역색인 검색.
   추가 검색마다 `get_context`와 같은 현재 명시 요청 조건을 전달한다. 그 조건으로 덮어쓴
   저장 기억은 제외하며 현재 요청을 확정 기억으로 저장하거나 검색 결과에 추가하지 않는다.
   `matches`, 관련도/일치어(`matchedTerms`)/조건(`matchedTopics`), `routing`, `searchedScopes`,
   크기/개수 제한의 `omittedCount`를 반환한다.
   확정된 프로젝트 UUID도 추가 검색에 전달한다. [색인 구조와 평가 한계](memory-index.md)를 참고한다.
-- `propose_memory(scope, kind, key, value, source, reason, supersedesId?)`: 후보만 저장.
+- `propose_memory(scope, kind, key, value, source, reason, supersedesId?, applicability?)`: 후보만 저장.
+
+`taskType`은 writing/translation/campaign/analysis/coding 중 현재 요청의 명확한 업무다.
+`applicability.taskTypes`가 있는 기억은 일치하는 업무에만 적용하고, taskType 생략 시 제외한다.
+후속 검색에도 동일한 업무를 전달한다. `taskExcludedCount`는 업무 때문에 제외한 active 기억 수다.
+일반 자연어 적용 판단이나 권한 검사가 아니며 [계약·한계](preference-applicability.md)를 확인한다.
 
 도구에 승인·비밀번호·복구 키·로그인 기능은 없다. 잠금 상태는 `VAULT_LOCKED`로 거부한다.
 조회·검색은 앞선 호출의 일회성 조건을 기억하지 않는다. `requestConditions`는 최대 50개이며
@@ -95,8 +101,9 @@ AI가 조립한 현재 요청이나 기억의 의미를 암호화가 검증하�
 - 상태 전체를 암호화하며 최대 파일 16 MiB/기억 10,000개를 제한한다. 분할 저장·증분 동기화와
   서버 회원별 용량 정책은 별도 작업이다. 검색은 어휘+제한된 조건 개념 보조이며 임베딩 기반
   일반 의미 검색은 없다. [기억 품질 평가](memory-quality.md)에서 범위와 알려진 누락을 확인한다.
-- 내부 상태는 에이전트 수집을 포함한 v4다. v1~v3는 인증 후 메모리에서 변환하며 다음 저장 때
-  기록한다. 기존 금고를 열면 전환 전 암호문 백업을 보존한다. 암호문 envelope v1/v2와 별개다.
+- 내부 상태는 업무별 적용 조건을 포함한 v5다. v1~v4는 인증 후 메모리에서 변환하며 다음 저장 때
+  기록한다. 기존 금고를 열면 전환 전 암호문을 `pre-state-v5-<24자리 hex>.enc`로 보존한다.
+  암호문 envelope v1/v2와 별개이며 Git revert로 사용자 데이터가 이전 상태로 돌아가지는 않는다.
 - 캡처 설정은 사이트별 동의와 프로젝트 ID를 금고 안에 저장한다. 최대 5,000개 캡처, 동일
   메시지 재전송 중복 제거, 본문 편집 revision을 지원한다. 사용자 발언의 규칙 추출은 후보만 만든다.
 - 잠금 파일이 남는 비정상 종료에서는 프로세스와 소켓의 종료를 먼저 확인한다. 자동으로 잠금 파일을

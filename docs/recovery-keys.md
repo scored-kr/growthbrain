@@ -52,8 +52,13 @@ npm run vault -- recover /absolute/new-vault-directory /absolute/private-backup.
 `npm run test:recovery`: 실제 PTY에서 발급→백업→새 비밀번호 복구→재시작, 키·비밀번호 비출력을
 합성 데이터로 확인한다. 사용자 기기의 오프라인 보관이나 실제 계정 복구 검증으로 보고하지 않는다.
 
-이전 코드로 `git revert`할 때 v2 파일은 읽을 수 없다. 전환 전 v1 암호문 백업과 그 비밀번호를
-별도 보존한다. Git 커밋은 사용자 데이터나 복구 키를 백업하지 않는다.
+envelope v2 지원 전 코드로 `git revert`하면 v2 파일을 읽을 수 없다. 전환 전 v1 암호문 백업과
+그 비밀번호를 별도 보존한다. Git 커밋은 사용자 데이터나 복구 키를 백업하지 않는다.
+
+챕터26의 내부 기억 상태 v5 전환은 envelope v1/v2와 별개다. v1~v4 기존 금고를 열 때 첫 쓰기 전
+원래 암호문을 `pre-state-v5-<24자리 hex>.enc`로 보존한다. 이 백업은 당시 비밀번호/복구 파일로
+열어야 하며 이후 비밀번호·복구 재발급이 과거 사본의 권한을 바꾸지 않는다. v5를 모르는 이전 코드로
+돌아갈 때에는 전환 전 백업을 새 디렉터리에 복원한다. [조건/전환 검증](preference-applicability.md)을 참고한다.
 
 `delete-all`의 명시적 DELETE 확인은 현재 로컬 금고와 앱이 관리하는 같은 디렉터리의
 `pre-state-v<버전>-<24자리 hex>.enc` 전환 백업에 적용된다. 사용자가 내보낸 백업·개인 복구 파일·

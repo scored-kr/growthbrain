@@ -80,7 +80,7 @@ try {
   const consent = await input.question('Type CONNECT to enable the local MCP connection, or press Enter to close: ');
   if (consent !== 'CONNECT') { await close(); process.exit(0); }
   broker = await startBroker(vault, directory);
-  console.log('Connected locally. Commands: projects, project, memories, propose, candidates, review, correct, retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, delete-all, lock');
+  console.log('Connected locally. Commands: projects, project, memories, propose, propose-task, candidates, review, correct, retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, delete-all, lock');
   const end = () => { void close().finally(() => process.exit(0)); };
   process.once('SIGTERM', end); process.once('SIGINT', end);
   while (true) {
@@ -93,12 +93,13 @@ try {
         const name = await input.question('Project name: ');
         console.log(await vault.mutate(e => e.addProject(name)));
       } else if (action === 'candidates') console.log(JSON.stringify(vault.read(e => e.snapshot().memories.filter(m => m.status === 'candidate')), null, 2));
-      else if (action === 'propose') {
+      else if (action === 'propose' || action === 'propose-task') {
         const projectId = await input.question('Project UUID, or GLOBAL for an explicit cross-project preference: ');
         const key = await input.question('Condition key (e.g. language, tone): ');
         const value = await input.question('Value: ');
+        const tasks=action==='propose-task'?await input.question('Apply only to tasks (writing, translation, campaign, analysis, coding; comma-separated): '):undefined;
         const prior = await input.question('Active memory UUID to replace, or Enter: ');
-        console.log(await vault.mutate(e => e.propose({ scope: projectId === 'GLOBAL' ? {type:'global'} : {type:'project',projectId}, kind: projectId === 'GLOBAL' ? 'preference' : 'constraint', key, value, source:{kind:'user',reference:'local:user-input',excerpt:value}, reason:'Explicit local user proposal', ...(prior ? {supersedesId:prior} : {}) })));
+        console.log(await vault.mutate(e => e.propose({ scope: projectId === 'GLOBAL' ? {type:'global'} : {type:'project',projectId}, kind: projectId === 'GLOBAL' ? 'preference' : 'constraint', key, value, source:{kind:'user',reference:'local:user-input',excerpt:value}, reason:'Explicit local user proposal', ...(prior ? {supersedesId:prior} : {}),...(tasks!==undefined?{applicability:{taskTypes:tasks.split(',').map(x=>x.trim())}}:{}) })));
       } else if (action === 'review') {
         const id = await input.question('Candidate UUID: ');
         const candidate = vault.read(e => e.snapshot().memories.find(m => m.id === id && m.status === 'candidate'));
@@ -150,7 +151,7 @@ try {
           }
           break;
         }
-      } else console.log('Commands: projects, project, memories, propose, candidates, review, correct, retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, delete-all, lock');
+      } else console.log('Commands: projects, project, memories, propose, propose-task, candidates, review, correct, retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, delete-all, lock');
     } catch { console.log('Action failed. Check the project/candidate ID, explicit replacement, and field limits. No approval was assumed.'); }
   }
   await close();

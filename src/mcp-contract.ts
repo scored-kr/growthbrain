@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { identifier, proposalSchema, scopeSchema, sourceSchema } from './model.js';
+import { identifier, proposalSchema, scopeSchema, sourceSchema, applicabilitySchema, taskTypeSchema } from './model.js';
 
 const routingSchema = z.object({
   projectId: identifier.nullable(),
@@ -7,8 +7,10 @@ const routingSchema = z.object({
   candidateProjectIds: z.array(identifier).max(1000),
 }).strict();
 const condition = { key: proposalSchema.shape.key, value: proposalSchema.shape.value };
-const stored = { ...condition, memoryId: identifier, source: sourceSchema, reason: proposalSchema.shape.reason, supersedesId: identifier.optional() };
+const stored = { ...condition, memoryId: identifier, source: sourceSchema, reason: proposalSchema.shape.reason, supersedesId: identifier.optional(),applicability:applicabilitySchema.optional() };
+const taskSelection={taskType:taskTypeSchema.nullable(),taskExcludedCount:z.number().int().nonnegative()};
 export const contextOutputSchema = z.object({
+  ...taskSelection,
   projectId: identifier.nullable(), routing: routingSchema,
   searchedScopes: z.array(z.string()).min(1).max(2),
   conditions: z.array(z.discriminatedUnion('origin', [
@@ -21,8 +23,9 @@ export const contextOutputSchema = z.object({
   disclosure: z.string().min(1),
 }).strict();
 export const searchOutputSchema = z.object({
+  ...taskSelection,
   matches: z.array(z.object({
-    id: identifier, ...condition, scope: scopeSchema, source: sourceSchema, reason: proposalSchema.shape.reason,
+    id: identifier, ...condition, scope: scopeSchema, source: sourceSchema, reason: proposalSchema.shape.reason,applicability:applicabilitySchema.optional(),
     score: z.number().nonnegative(), matchedTerms: z.array(z.string()),
     matchedTopics: z.array(z.enum(['language', 'tone', 'format', 'audience', 'budget', 'deadline', 'brand', 'cta'])),
   }).strict()).max(50),

@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { open, readFile, rename, unlink, mkdir, lstat, rmdir, realpath, readdir } from 'node:fs/promises';
 import { dirname, join, resolve, relative, isAbsolute, basename } from 'node:path';
 import { MemoryEngine } from './engine.js';
-import { identifier, STATE_VERSION } from './model.js';
+import { identifier, STATE_VERSION, type TaskType } from './model.js';
 import { envelopeSchema, recoverySchema, derive, decrypt, decryptRecovery, seal, newHeader, type Envelope, type Header } from './envelope.js';
 
 const MAX_BYTES = 16 * 1024 * 1024;
@@ -172,9 +172,9 @@ export class VaultSession {
     if(this.closing)throw new Error('VAULT_LOCKED');
     return structuredClone(this.requireOpen().getContext(input));
   }
-  search(projectId:string|undefined,query:string,limit=20,requestConditions:unknown={}) {
+  search(projectId:string|undefined,query:string,limit=20,requestConditions:unknown={},taskType?:TaskType) {
     if(this.closing)throw new Error('VAULT_LOCKED');
-    return structuredClone(this.requireOpen().search(projectId,query,limit,requestConditions));
+    return structuredClone(this.requireOpen().search(projectId,query,limit,requestConditions,taskType));
   }
   mutate<T>(operation: (engine: MemoryEngine) => T): Promise<T> {
     if (this.closing) return Promise.reject(new Error('VAULT_LOCKED'));

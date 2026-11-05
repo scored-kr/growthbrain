@@ -28,7 +28,7 @@ export const sourceSchema = z.object({
   reference: z.string().min(1).max(2048),
   excerpt: z.string().min(1).max(4000),
 }).strict();
-export const proposalSchema = z.object({
+const baseProposalSchema = z.object({
   scope: scopeSchema,
   kind: z.enum(['preference', 'decision', 'constraint', 'goal', 'feedback']),
   key: z.string().regex(/^[a-z][a-z0-9_.-]{0,79}$/),
@@ -41,19 +41,23 @@ export const proposalSchema = z.object({
     ctx.addIssue({ code: 'custom', message: 'Global scope is reserved for explicitly selected preferences' });
   }
 });
-const legacyMemorySchema = proposalSchema.safeExtend({
+export const taskTypeSchema=z.enum(['writing','translation','campaign','analysis','coding']);
+export const applicabilitySchema=z.object({taskTypes:z.array(taskTypeSchema).min(1).max(5).refine(types=>new Set(types).size===types.length,'Task types must be unique')}).strict();
+export const proposalSchema=baseProposalSchema.safeExtend({applicability:applicabilitySchema.optional()});
+const legacyMemorySchema = baseProposalSchema.safeExtend({
   id: identifier,
   status: z.enum(['candidate', 'active', 'rejected', 'superseded']),
   createdAt: z.string().datetime(),
   reviewedAt: z.string().datetime().optional(),
 });
-export const memorySchema = proposalSchema.safeExtend({
+const historicalMemorySchema = baseProposalSchema.safeExtend({
   ...legacyMemorySchema.shape,
   status: z.enum(['candidate', 'active', 'rejected', 'superseded', 'retired']),
   correctionOf: identifier.optional(),
   retiredAt: z.string().datetime().optional(),
   retirementReason: z.string().trim().min(1).max(2000).optional(),
 });
+export const memorySchema=historicalMemorySchema.safeExtend({applicability:applicabilitySchema.optional()});
 const legacyStateSchema = z.object({
   version: z.literal(1),
   ownerId: identifier,
@@ -63,9 +67,10 @@ const legacyStateSchema = z.object({
 const captureStateSchema=legacyStateSchema.extend({
   version:z.literal(2), captures:z.array(captureSchema).max(5000), captureSettings:z.array(consentSchema).max(2),
 }).strict();
-const reviewStateSchema=captureStateSchema.extend({version:z.literal(3),memories:z.array(memorySchema).max(10000)}).strict();
-export const STATE_VERSION=4;
-export const stateSchema=reviewStateSchema.extend({version:z.literal(STATE_VERSION),agentBindings:z.array(agentBindingSchema).max(1000),agentCaptures:z.array(agentCaptureSchema).max(5000),projectTriggers:z.array(projectTriggerSchema).max(1000)}).strict();
+const reviewStateSchema=captureStateSchema.extend({version:z.literal(3),memories:z.array(historicalMemorySchema).max(10000)}).strict();
+const agentStateSchema=reviewStateSchema.extend({version:z.literal(4),agentBindings:z.array(agentBindingSchema).max(1000),agentCaptures:z.array(agentCaptureSchema).max(5000),projectTriggers:z.array(projectTriggerSchema).max(1000)}).strict();
+export const STATE_VERSION=5;
+export const stateSchema=agentStateSchema.extend({version:z.literal(STATE_VERSION),memories:z.array(memorySchema).max(10000)}).strict();
 export function parseState(state: unknown) {
   const additions={agentBindings:[],agentCaptures:[],projectTriggers:[]};
   if(typeof state==='object' && state!==null && 'version' in state && state.version===1) {
@@ -77,17 +82,22 @@ export function parseState(state: unknown) {
   if(typeof state==='object' && state!==null && 'version' in state && state.version===3) {
     return stateSchema.parse({...reviewStateSchema.parse(state),version:STATE_VERSION,...additions});
   }
+  if(typeof state==='object' && state!==null && 'version' in state && state.version===4) {
+    return stateSchema.parse({...agentStateSchema.parse(state),version:STATE_VERSION});
+  }
   return stateSchema.parse(state);
 }
 export const requestConditionsSchema = z.record(z.string().regex(/^[a-z][a-z0-9_.-]{0,79}$/), z.string().trim().min(1).max(4000)).default({});
 export const contextSchema = z.object({
   projectId: identifier.optional(),
+  taskType: taskTypeSchema.optional(),
   query:z.string().max(2000).default(''),
   requestConditions: requestConditionsSchema,
   maxCharacters: z.number().int().min(512).max(32000).default(12000),
 }).strict();
 export const searchSchema = z.object({
   projectId: identifier.optional(),
+  taskType: taskTypeSchema.optional(),
   query: z.string().trim().min(1).max(200),
   limit: z.number().int().min(1).max(50).default(20),
   requestConditions: requestConditionsSchema,
@@ -96,5 +106,6 @@ export type State = z.infer<typeof stateSchema>;
 export type Memory = z.infer<typeof memorySchema>;
 export type Proposal = z.infer<typeof proposalSchema>;
 export type Scope = z.infer<typeof scopeSchema>;
+export type TaskType=z.infer<typeof taskTypeSchema>;
 export type CaptureInput=z.infer<typeof captureInputSchema>;
 export type Capture=z.infer<typeof captureSchema>;

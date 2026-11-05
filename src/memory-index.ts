@@ -1,4 +1,5 @@
-import type { Memory } from './model.js';
+import type { Memory, TaskType } from './model.js';
+import { appliesToTask } from './memory-applicability.js';
 import { memoryTopics, normalized, topicForKey, queryTopics, type MemoryTopic } from './memory-topics.js';
 
 export const normalizeText=normalized;
@@ -44,8 +45,11 @@ class ScopeIndex {
   private lengths=new Map<string,number>();
   private totalLength=0;
   private topics=new Map<MemoryTopic,Set<string>>();
+  private conditionalCount=0;
+  private taskCounts=new Map<TaskType,number>();
   add(memory:Memory) {
     this.docs.set(memory.id,memory);this.byKey.set(memory.key,memory);
+    if(memory.applicability){this.conditionalCount++;for(const task of memory.applicability.taskTypes)this.taskCounts.set(task,(this.taskCounts.get(task)??0)+1);}
     const topic=topicForKey(memory.key);
     if(topic){let posting=this.topics.get(topic);if(!posting)this.topics.set(topic,posting=new Set());posting.add(memory.id);}
     const terms=documentTerms(memory);let length=0;
@@ -55,6 +59,7 @@ class ScopeIndex {
     }
     this.lengths.set(memory.id,length);this.totalLength+=length;
   }
+  taskExcludedCount(taskType?:TaskType){return this.conditionalCount-(taskType?this.taskCounts.get(taskType)??0:0);}
   private score(term:string,id:string) {
     const posting=this.postings.get(term),tf=posting?.get(id)??0;if(!tf)return 0;
     const n=this.docs.size,df=posting!.size,average=this.totalLength/Math.max(1,n),length=this.lengths.get(id)??0;
@@ -99,17 +104,24 @@ export class MemoryIndexes {
       }
     }
   }
-  effective(projectId?:string,requestConditions:Record<string,string>={}) {
+  effective(projectId?:string,requestConditions:Record<string,string>={},taskType?:TaskType) {
     // The common store is always the root; exactly one selected project may overlay it.
-    const effective=new Map(this.common.byKey);
-    if(projectId)for(const [key,memory] of this.projects.get(projectId)?.byKey??[])effective.set(key,memory);
+    const effective=new Map([...this.common.byKey].filter(([,memory])=>appliesToTask(memory,taskType)));
+    if(projectId)for(const [key,memory] of this.projects.get(projectId)?.byKey??[])if(appliesToTask(memory,taskType))effective.set(key,memory);
     for(const key of Object.keys(requestConditions))effective.delete(key);
     return effective;
   }
-  search(query:string,projectId:string|undefined,requestConditions:Record<string,string>) {
+  taskExcludedCount(projectId:string|undefined,taskType?:TaskType) {
+    return this.common.taskExcludedCount(taskType)+(projectId?this.projects.get(projectId)?.taskExcludedCount(taskType)??0:0);
+  }
+  search(query:string,projectId:string|undefined,requestConditions:Record<string,string>,taskType?:TaskType) {
     const groups=queryGroups(query),topics=queryTopics(query),selected=projectId?this.projects.get(projectId):undefined;
     // Check overlay eligibility only for posting candidates: no full-store Map copies on every search.
-    const isEffective=(memory:Memory)=>!Object.hasOwn(requestConditions,memory.key)&&(memory.scope.type==='project'||!selected?.byKey.has(memory.key));
+    const isEffective=(memory:Memory)=>{
+      if(!appliesToTask(memory,taskType)||Object.hasOwn(requestConditions,memory.key))return false;
+      const projectOverride=selected?.byKey.get(memory.key);
+      return memory.scope.type==='project'||!projectOverride||!appliesToTask(projectOverride,taskType);
+    };
     const common=this.common.search(groups,topics,isEffective);
     const project=selected?.search(groups,topics,isEffective)??[];
     return [...common,...project].sort((a,b)=>b.score-a.score||a.memory.key.localeCompare(b.memory.key));

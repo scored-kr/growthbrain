@@ -95,3 +95,7 @@ workspace/project가 현재 binding과 다르면 `AGENT_SESSION_SCOPE_MISMATCH`�
 코드 복사/수정/재배포 시 해당 라이선스·저작권·NOTICE 유지 및 변경 표시를 확인해야 한다.
 별도 LICENSE/NOTICE가 있는 integration/skill은 파일별 조건도 확인해야 한다.
 이번에는 원문 코드를 제품에 복사하거나 Mem0 런타임 의존성을 추가하지 않았다.
+
+후속 챕터26: 위 업무별 조건/동일 필터/후보 수정 조건 보존을 구현하고 전체 test:local을 통과했다.
+[구현 계약과 한계](preference-applicability.md)를 따른다. 내부 상태v5 전환 백업/복구와 검토 UI를
+포함하며 일반 의미 충돌/실제 AI 결과 계측은 남아 있다. Mem0 코드를 복사한 구현이 아니다.

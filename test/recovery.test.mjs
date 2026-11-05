@@ -21,6 +21,7 @@ async function fixture(t) {
 
 test('v1 opt-in migration, password-loss recovery and fresh-key restoration preserve memory',async t=>{
  const f=await fixture(t), original=join(f.directory,'vault.json'), oldBackup=join(f.root,'before.enc');
+ await f.session.mutate(e=>approve(e,proposal({type:'project',projectId:f.project.id},'format','RECOVERY_CAMPAIGN_ONLY',{applicability:{taskTypes:['campaign']}})));
  await f.session.exportBackup(oldBackup);
  assert.equal(JSON.parse(await readFile(original,'utf8')).version,1);
  const result=await f.session.issueRecovery(f.password,f.keyFile);
@@ -35,6 +36,8 @@ test('v1 opt-in migration, password-loss recovery and fresh-key restoration pres
  await assert.rejects(VaultSession.recover(oldBackup,target,f.owner,f.keyFile,nextPassword),/RECOVERY_NOT_ENABLED/);
  const recovered=await VaultSession.recover(backup,target,f.owner,f.keyFile,nextPassword);
  assert.equal(recovered.read(e=>e.getContext({projectId:f.project.id})).conditions[0].value,'RECOVERY_PRIVATE_MEMORY');
+ assert.ok(!JSON.stringify(recovered.getContext({projectId:f.project.id,taskType:'translation'})).includes('RECOVERY_CAMPAIGN_ONLY'));
+ assert.equal(recovered.getContext({projectId:f.project.id,taskType:'campaign'}).conditions.find(m=>m.key==='format').value,'RECOVERY_CAMPAIGN_ONLY');
  await recovered.close();
  assert.equal(JSON.parse(await readFile(join(target,'vault.json'),'utf8')).recovery,undefined);
  await assert.rejects(VaultSession.open(target,f.owner,f.password),/UNLOCK_FAILED/);

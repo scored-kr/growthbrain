@@ -79,6 +79,18 @@ with tempfile.TemporaryDirectory(prefix='gb-terminal-') as directory:
         until('Retirement reason: ');send('No longer applicable')
         until('stop using this memory: ');send('RETIRE')
         result=until('growth-brain> ');assert 'retired' in result
+        send('propose-task');until('preference: ');send(project)
+        until('tone): ');send('format')
+        until('Value: ');send('TERMINAL_CAMPAIGN_ONLY')
+        until('comma-separated): ');send('campaign')
+        until('or Enter: ');send('')
+        result=until('growth-brain> ')
+        conditional=re.search(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}",result).group()
+        send('review');until('Candidate UUID: ');send(conditional)
+        displayed=until('Enter cancels: ')
+        assert 'applicability' in displayed and 'campaign' in displayed
+        send('APPROVE');result=until('growth-brain> ');assert 'active' in result
+        assert 'TERMINAL_CAMPAIGN_ONLY' not in Path(directory,'vault.json').read_text()
         assert 'TERMINAL_SYNTHETIC_MEMORY' not in Path(directory,'vault.json').read_text()
         managed=Path(directory,'pre-state-v4-'+'1'*24+'.enc')
         managed.write_bytes(Path(directory,'vault.json').read_bytes()); managed.chmod(0o600)
