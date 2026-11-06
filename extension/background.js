@@ -1,6 +1,7 @@
 const sites=['chatgpt.com','claude.ai'];
 const popupUrl=chrome.runtime.getURL('popup.html');
 const importUrl=chrome.runtime.getURL('import.html');
+const appUrl=chrome.runtime.getURL('app.html');
 const host='com.growthbrain.local';
 const controls=new Map(),revisions=new Map();let storageQueue=Promise.resolve();
 // Ephemeral operational metadata only: no conversation text, URLs or project names.
@@ -48,6 +49,11 @@ export async function dispatch(message,sender){
       const known=['VAULT_LOCKED','LOCAL_VAULT_UNAVAILABLE','CAPTURE_NOT_CONSENTED','CAPTURE_LIMIT','MEMORY_LIMIT','VAULT_SIZE_LIMIT'];
       if((revisions.get(site)??0)===token)captureStatus.set(site,{state:'failed',at:new Date().toISOString(),error:known.includes(error.message)?error.message:'REQUEST_FAILED'});throw error;
     }
+  }
+  if(sender.id===chrome.runtime.id&&sender.url?.split('#')[0]===appUrl){
+    const methods=['check_vault','list_projects','create_project','dashboard','list_memories','review_memory','correct_candidate','retire_memory','pin_memory','get_context','search_memory','propose_memory','list_captures','propose_handoff','list_handoffs','review_handoff','retire_handoff'];
+    if(message.type!=='APP_CALL'||!methods.includes(message.method))throw Error('INVALID_REQUEST');
+    return await native(message.method,message.params);
   }
   if(sender.id===chrome.runtime.id&&sender.url===importUrl){
     if(message.type==='IMPORT_PROJECTS')return await native('list_projects',{});

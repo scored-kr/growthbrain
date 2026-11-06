@@ -319,7 +319,8 @@ export class MemoryEngine {
     this.requireProject(projectId);const found=this.state.handoffs.filter(h=>h.projectId===projectId).toReversed();
     let size=0;const handoffs=[];
     for(const h of found.slice(offset,offset+20)){const length=JSON.stringify(h).length;if(size+length>60000)break;size+=length;handoffs.push(structuredClone(h));}
-    return {handoffs,total:found.length,nextOffset:offset+handoffs.length<found.length?offset+handoffs.length:null};
+    const active=found.find(h=>h.status==='active');
+    return {handoffs,active:active?{id:active.id,goal:active.goal}:null,total:found.length,nextOffset:offset+handoffs.length<found.length?offset+handoffs.length:null};
   }
   reviewHandoff(projectId:string,id:string,decision:'approve'|'reject',supersedesId?:string) {
     this.requireProject(projectId);const handoff=this.state.handoffs.find(h=>h.id===id&&h.projectId===projectId&&h.status==='candidate');

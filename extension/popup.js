@@ -73,3 +73,5 @@ $('refresh').onclick=()=>run(loadProjects);
 $('site').onchange=()=>{state();$('project').value=local[$('site').value]?.projectId??'';run(()=>memories())};
 $('project').onchange=()=>run(()=>memories());$('filter').onchange=()=>run(()=>memories());$('more').onclick=()=>run(()=>memories(nextOffset));
 run(loadProjects);
+
+document.querySelector('#open-app').addEventListener('click',()=>chrome.tabs.create({url:chrome.runtime.getURL('app.html')}));

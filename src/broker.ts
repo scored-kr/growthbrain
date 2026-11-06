@@ -17,6 +17,7 @@ const requestSchema = z.discriminatedUnion('method', [
   z.object({method:z.literal('pin_memory'),params:z.object({projectId:identifier,id:identifier,pinned:z.boolean()}).strict()}).strict(),
   z.object({method:z.literal('dashboard'),params:z.object({projectId:identifier}).strict()}).strict(),
   z.object({method:z.literal('list_captures'),params:z.object({projectId:identifier,offset:z.number().int().min(0).max(5000).default(0)}).strict()}).strict(),
+  z.object({method:z.literal('check_vault'),params:z.object({}).strict()}).strict(),
   // Local native-messaging/UI operations; these are never registered as MCP tools.
   z.object({method:z.literal('import_chat'),params:chatImportInputSchema}).strict(),
   z.object({method:z.literal('create_project'),params:z.object({name:z.string().trim().min(1).max(200)}).strict()}).strict(),
@@ -87,6 +88,7 @@ export async function startBroker(vault: VaultSession, directory: string) {
         else if(method==='pin_memory')result=await vault.mutate(e=>e.pinMemory(params.projectId,params.id,params.pinned));
         else if(method==='dashboard')result=vault.read(e=>e.dashboard(params.projectId));
         else if(method==='list_captures')result=vault.read(e=>e.listCaptures(params.projectId,params.offset));
+        else if(method==='check_vault'){vault.assertUnlocked();result={unlocked:true};}
         else if(method==='list_projects')result=vault.read(e=>({projects:e.snapshot().projects,settings:e.snapshot().captureSettings}));
         else if(method==='configure_capture')result=await vault.mutate(e=>e.configureCapture(params));
         else if(method==='capture')result=await vault.mutate(e=>e.capture(params));

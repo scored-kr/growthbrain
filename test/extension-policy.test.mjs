@@ -83,3 +83,14 @@ test('only the dedicated import page can create projects or import; plaintext ne
  await h.dispatch({type:'IMPORT_CREATE_PROJECT',name:'Selected project'},sender);assert.equal(h.calls.at(-1).method,'create_project');
  assert.deepEqual(h.state,{});
 });
+
+test('management operations require the exact extension-owned app page; pages cannot approve, pin, inspect or propose handoffs',async()=>{
+ const h=await harness(),app={id:h.popup.id,url:h.popup.url.replace('popup.html','app.html')+'#review'},params={projectId:randomUUID(),id:randomUUID(),decision:'approve'};
+ for(const method of ['check_vault','dashboard','get_context','review_memory','pin_memory','list_captures','propose_handoff','review_handoff','retire_handoff']){
+  const message={type:'APP_CALL',method,params};
+  for(const sender of [h.page,h.popup,{...app,id:'b'.repeat(32)},{...app,url:app.url.replace('app.html','app.html.evil')}])await assert.rejects(h.dispatch(message,sender));
+  await h.dispatch(message,app);assert.equal(h.calls.at(-1).method,method);assert.deepEqual(h.calls.at(-1).params,params);
+ }
+ for(const method of ['unlock','delete_all','configure_capture','capture','web_approve'])await assert.rejects(h.dispatch({type:'APP_CALL',method,params},app),/INVALID_REQUEST/);
+ assert.deepEqual(h.state,{});
+});

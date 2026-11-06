@@ -19,7 +19,7 @@
     "test:hooks:codex": "npm run build && node test/agent-codex-session.mjs",
     "test:codex": "npm run build && node test/codex-session.mjs",
     "test:browser": "npm run build && node test/browser-session.mjs",
-    "test:ui": "node test/ui-fixtures.mjs && node test/import-ui.mjs",
+    "test:ui": "node test/ui-fixtures.mjs && node test/import-ui.mjs && node test/app-ui.mjs",
     "test:native-install": "npm run build && python3 test/native-install.py",
     "mcp": "node dist/mcp.js",
     "vault": "node dist/cli.js",
