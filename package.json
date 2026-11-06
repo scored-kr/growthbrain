@@ -27,7 +27,8 @@
     "verify:skills": "node scripts/verify-skills.mjs",
     "doctor:ign8t": "node scripts/ign8t-doctor.mjs",
     "test:ign8t-install": "python3 test/ign8t-install.py",
-    "test:local": "npm test && npm run verify:skills && npm run test:ign8t-install && npm run test:install && npm run test:agent-install && npm run test:native-install && npm run test:terminal && npm run test:recovery && npm run test:ui"
+    "test:local": "npm test && npm run verify:skills && npm run test:ign8t-install && npm run test:install && npm run test:agent-install && npm run test:native-install && npm run test:terminal && npm run test:recovery && npm run test:ui",
+    "validate:extension": "npm run build && node scripts/validate-extension.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
