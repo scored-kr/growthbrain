@@ -90,7 +90,9 @@ export class MemoryEngine {
       if (m.supersedesId) {
         const old=memories.get(m.supersedesId);
         if (!old || !sameScope(old.scope,m.scope) || !equivalentKeys(old.key,m.key) || !conflictingApplicability(old,m)) throw new Error('INVALID_SUPERSESSION');
-        if ((m.status==='active'||m.status==='retired') && old.status!=='superseded') throw new Error('INVALID_SUPERSESSION_STATUS');
+        // Every approved edge remains binding even after its successor is itself
+        // superseded/retired. Otherwise an earlier ancestor can revive on restore.
+        if (['active','retired','superseded'].includes(m.status) && old.status!=='superseded') throw new Error('INVALID_SUPERSESSION_STATUS');
       }
     }
     const handoffs=new Map<string,State['handoffs'][number]>(), currentHandoffs=new Set<string>();
