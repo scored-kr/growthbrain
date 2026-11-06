@@ -59,6 +59,10 @@ test('real native frames collect and review only with explicit site consent; ori
       const forbidden=await client.callTool({name:'retire_memory',arguments:{projectId:project.id,id:corrected.id,reason:'AI cannot retire'}});
       assert.equal(forbidden.isError,true);
     }finally{await client.close()}
+    const rejected=(await call('capture',{...input,messageId:'reject-me',text:'한국어로 답변해주세요'})).result;
+    assert.ok(rejected.candidateIds.length>0);
+    for(const id of rejected.candidateIds){assert.equal((await call('review_memory',{projectId:project.id,id,decision:'reject'})).result.status,'rejected');}
+    assert.deepEqual(vault.getContext({projectId:project.id}).conditions,[]);
     await vault.close();assert.equal((await call('list_projects',{})).error,'VAULT_LOCKED');
   }finally{await broker.close();await vault.close();await rm(directory,{recursive:true,force:true});}
 });

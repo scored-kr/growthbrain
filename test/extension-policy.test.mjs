@@ -2,21 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 async function harness(native=async()=>({result:{}})){
- const state={};const id='a'.repeat(32);const calls=[];
+ const state={};const id='a'.repeat(32);const calls=[];let removed;
  globalThis.chrome={
   runtime:{id,getURL:path=>`chrome-extension://${id}/${path}`,onMessage:{addListener(){}},sendNativeMessage:async(_,request)=>{calls.push(request);return native(request)}},
   storage:{local:{get:async key=>({[key]:structuredClone(state[key])}),set:async values=>Object.assign(state,structuredClone(values))}},
   scripting:{unregisterContentScripts:async()=>{},registerContentScripts:async()=>{},executeScript:async()=>{}},
-  tabs:{query:async()=>[],sendMessage:async()=>{}},permissions:{contains:async()=>true,onRemoved:{addListener(){}}},
+  tabs:{query:async()=>[],sendMessage:async()=>{}},permissions:{contains:async()=>true,onRemoved:{addListener(fn){removed=fn}}},
  };
  const {dispatch}=await import(`../extension/background.js?test=${randomUUID()}`);
  const popup={id,url:`chrome-extension://${id}/popup.html`};
  const page={id,url:'https://chatgpt.com/c/test',tab:{url:'https://chatgpt.com/c/test'}};
- return {dispatch,state,calls,popup,page};
+ return {dispatch,state,calls,popup,page,permissionRemoved:p=>removed(p)};
 }
 test('content scripts cannot manage consent/review and page capture cannot forge source or project',async()=>{
  const h=await harness();const project=randomUUID();
- for(const type of ['REVIEW','CORRECT','RETIRE','IMPORT_CHAT','IMPORT_CREATE_PROJECT'])await assert.rejects(h.dispatch({type},h.page),/POPUP_REQUIRED/);
+ for(const type of ['CHECK','REVIEW','CORRECT','RETIRE','IMPORT_CHAT','IMPORT_CREATE_PROJECT'])await assert.rejects(h.dispatch({type},h.page),/POPUP_REQUIRED/);
  await assert.rejects(h.dispatch({type:'ENABLE',site:'chatgpt.com',projectId:project},h.page),/POPUP_REQUIRED/);
  await h.dispatch({type:'ENABLE',site:'chatgpt.com',projectId:project},h.popup);
  const capture={type:'CAPTURE',url:'https://chatgpt.com/c/test',projectId:randomUUID(),message:{messageId:'1',role:'user',text:'synthetic'}};
@@ -93,4 +93,22 @@ test('management operations require the exact extension-owned app page; pages ca
  }
  for(const method of ['unlock','delete_all','configure_capture','capture','web_approve'])await assert.rejects(h.dispatch({type:'APP_CALL',method,params},app),/INVALID_REQUEST/);
  assert.deepEqual(h.state,{});
+});
+
+
+test('permission revocation cancels an in-flight enable and pauses locally even when the native stop fails',async()=>{
+ let entered,release;const started=new Promise(r=>entered=r);
+ const h=await harness(async request=>{
+  if(request.method==='configure_capture'&&request.params.enabled){entered();await new Promise(r=>release=r);return{result:{}};}
+  if(request.method==='configure_capture')return{error:'LOCAL_VAULT_UNAVAILABLE'};
+  return{result:{}};
+ });
+ const pending=h.dispatch({type:'ENABLE',site:'chatgpt.com',projectId:randomUUID()},h.popup);await started;
+ chrome.permissions.contains=async()=>false;
+ const revoked=h.permissionRemoved({origins:['https://chatgpt.com/*']});release();
+ assert.equal((await pending).enabled,false);await revoked;
+ assert.equal(h.state.sites['chatgpt.com'].enabled,false);
+ await assert.rejects(h.dispatch({type:'CAPTURE',url:h.page.tab.url,message:{messageId:'one',role:'user',text:'never collected'}},h.page),/PAUSED/);
+ assert.equal(h.calls.filter(c=>c.method==='capture').length,0);
+ assert.equal(h.calls.at(-1).params.enabled,false);
 });

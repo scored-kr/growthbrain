@@ -1,12 +1,23 @@
-const $=id=>document.getElementById(id);let local={},capture={},projects=[],nextOffset=null,viewGeneration=0;
+const $=id=>document.getElementById(id);let local={},capture={},projects=[],nextOffset=null,viewGeneration=0,connectionGeneration=0,connected=false;
 function status(message){$('status').textContent=message}
+function clearSensitiveState(){
+  connectionGeneration++;viewGeneration++;connected=false;local={};capture={};projects=[];nextOffset=null;
+  $('memories').replaceChildren();$('more').hidden=true;$('project').replaceChildren(new Option('연결 후 선택하세요',''));
+  $('capture-state').textContent='금고 연결 후 수집 상태를 확인하세요.';$('reconnect').hidden=false;
+}
 $('open-import').onclick=()=>run(async()=>{await chrome.tabs.create({url:chrome.runtime.getURL('import.html')})});
 const taskLabels={writing:'글쓰기',translation:'번역',campaign:'캠페인',analysis:'분석',coding:'코딩'};
 function applicabilityLabel(memory){return memory.applicability?`적용 업무: ${memory.applicability.taskTypes.map(t=>taskLabels[t]??t).join(', ')} (다른 업무·미지정 시 제외)`:'적용 업무: 모든 업무의 기본값';}
-async function send(message){const response=await chrome.runtime.sendMessage(message);if(!response?.ok)throw Error(response?.error??'연결 실패');return response.result}
-const errors={VAULT_LOCKED:'금고가 잠겨 있습니다. 별도 로컬 터미널에서 잠금을 해제하세요.',LOCAL_VAULT_UNAVAILABLE:'로컬 연결 프로그램을 설치하고 금고를 열어주세요.',EXPLICIT_SUPERSESSION_REQUIRED:'같은 조건의 확정 기억이 있습니다. 교체할 기존 조건을 선택한 뒤 다시 승인하세요.'};
-async function run(action){try{await action()}catch(e){status(errors[e.message]??e.message)}}
+async function send(message){
+  let response;try{response=await chrome.runtime.sendMessage(message)}catch{response={ok:false,error:'LOCAL_VAULT_UNAVAILABLE'}}
+  if(!response?.ok){const code=response?.error??'LOCAL_VAULT_UNAVAILABLE';if(['VAULT_LOCKED','LOCAL_VAULT_UNAVAILABLE'].includes(code))clearSensitiveState();throw Error(code)}
+  return response.result;
+}
+const errors={VAULT_LOCKED:'금고가 잠겨 있습니다. 별도 로컬 터미널에서 잠금을 해제하세요.',LOCAL_VAULT_UNAVAILABLE:'로컬 기억 엔진(Native Host)과 연결할 수 없습니다. 로컬 서비스가 실행 중인지 확인하세요.',EXPLICIT_SUPERSESSION_REQUIRED:'같은 조건의 확정 기억이 있습니다. 교체할 기존 조건을 선택한 뒤 다시 승인하세요.',MULTIPLE_SUPERSESSIONS_REQUIRED:'여러 기존 조건과 겹칩니다. 기억 관리에서 기존 조건을 검토하세요.'};
+const localErrors=new Set(['프로젝트를 선택하세요.','사이트 권한이 허용되지 않았습니다.','내용과 사유를 입력하세요.']);
+async function run(action){try{await action()}catch(e){status(errors[e.message]??(localErrors.has(e.message)?e.message:'요청을 처리하지 못했습니다. 연결과 입력을 확인하세요.'))}}
 function state(){
+  if(!connected){$('capture-state').textContent='금고 연결 후 수집 상태를 확인하세요.';return;}
   const site=$('site').value,s=local[site],last=capture[site];
   const name=projects.find(p=>p.id===s?.projectId)?.name??'선택 프로젝트';
   const detail=!last?'아직 확인된 전송 없음':last.state==='received'?`마지막 전송 확인 ${new Date(last.at).toLocaleTimeString()}${last.duplicate?' (중복 제외)':''}`:
@@ -14,7 +25,9 @@ function state(){
   $('capture-state').textContent=s?.enabled?`수집 허용 · 저장 대상: ${name} · ${detail}`:'수집 중지됨';
 }
 async function loadProjects(){
-  const result=await send({type:'PROJECTS'});local=result.local;capture=result.capture??{};projects=result.projects;const selected=$('project').value||local[$('site').value]?.projectId;
+  const token=++connectionGeneration;status('기억 상태를 불러오는 중입니다...');
+  const result=await send({type:'PROJECTS'});if(token!==connectionGeneration)return;
+  connected=true;$('reconnect').hidden=true;local=result.local;capture=result.capture??{};projects=result.projects;const selected=$('project').value||local[$('site').value]?.projectId;
   $('project').replaceChildren(new Option('선택하세요',''));
   for(const p of result.projects)$('project').append(new Option(p.name,p.id));
   $('project').value=selected??'';state();status(result.reconciled?'금고의 동의/프로젝트 설정이 변경되어 이 브라우저 수집을 중지했습니다.':'로컬 금고 연결됨');await memories();
@@ -25,10 +38,11 @@ async function memories(offset=0){
   if(!projectId)return;
   const data=await send({type:'MEMORIES',projectId,status:$('filter').value,offset});
   if(token!==viewGeneration||projectId!==$('project').value)return;
+  if(!offset&&!data.memories.length){const empty=document.createElement('p');empty.textContent=$('filter').value==='candidate'?'현재 검토할 새로운 기억 후보가 없습니다. AI와의 대화 중 중요한 결정이 감지되면 여기에 표시됩니다.':'선택한 상태에 해당하는 기억이 없습니다.';$('memories').append(empty);}
   for(const m of data.memories){
     const card=document.createElement('article');const heading=document.createElement('strong');heading.textContent=`${m.key} · ${m.status} · ${m.scope.type==='global'?'공통':'프로젝트'}`;
     const text=document.createElement('pre');text.textContent=m.value;
-    const source=document.createElement('small');source.textContent=`출처: ${m.captureSource?.url??m.source.reference}\n원문: ${m.source.excerpt}\n이유: ${m.reason}`;
+    const source=document.createElement('small');source.textContent=`출처: ${m.captureSource?.url??m.source.reference}\n시각: ${m.captureSource?.capturedAt??m.createdAt??'시각 미상'}\n원문: ${m.source.excerpt}\n이유: ${m.reason}`;
     card.append(heading,text,source);
     if(m.captureSource?.importSource){const origin=m.captureSource.importSource,notice=document.createElement('small');notice.textContent=`${origin.provider==='claude-export'?'Claude':'ChatGPT'} 과거 대화 가져오기 · ${origin.title}\n원래 발언: ${origin.createdAt??'시각 미상'} · ${m.captureSource.role==='user'?'사용자':'AI'}\n${origin.branchMode==='unverified-flat'?'현재 분기를 확인할 수 없는 파일입니다. 예전 답변이 함께 있을 수 있습니다. ':''}과거 내용입니다. 현재도 유효한지 확인한 뒤 승인하세요.`;card.append(notice)}
     const applicability=document.createElement('small');applicability.textContent=applicabilityLabel(m);card.append(applicability);
@@ -69,9 +83,21 @@ $('enable').onclick=()=>run(async()=>{
   const result=await send({type:'ENABLE',site,projectId});local[site]={enabled:result.enabled,projectId};delete capture[site];state();status(result.enabled?'사이트 수집을 허용했습니다. 새로고침으로 실제 전송 상태를 확인하세요.':'수집 시작 요청이 중지되었습니다.');
 });
 $('stop').onclick=()=>run(async()=>{const site=$('site').value;const result=await send({type:'STOP',site});local[site]={...local[site],enabled:false};state();status(result.vaultUpdatePending?'이 브라우저 수집 중지됨. 금고 연결 후 중지 상태를 다시 확인하세요.':'수집 중지 완료')});
+$('revoke').onclick=()=>run(async()=>{
+  const site=$('site').value,origins=[`https://${site}/*`];let permissionRevoked=false,stopped=false,pending=true;
+  // Revocation remains available when the native host or runtime cannot respond.
+  try{await chrome.permissions.remove({origins});permissionRevoked=!await chrome.permissions.contains({origins});}catch{}
+  try{const result=await send({type:'STOP',site});stopped=result.enabled===false;pending=!!result.vaultUpdatePending;}catch{}
+  if(permissionRevoked||stopped){local[site]={...local[site],enabled:false};state();}
+  status(permissionRevoked?`사이트 접근 권한을 해제했습니다.${pending?' 금고 연결 후 중지 상태를 다시 확인하세요.':''}`:
+    stopped?'수집을 중지했지만 사이트 접근 권한은 남아 있습니다. Chrome 확장 설정에서 권한을 확인하세요.':
+    '수집 중지와 권한 해제를 확인하지 못했습니다. Chrome 확장 설정에서 이 사이트 접근 권한을 해제하세요.');
+});
 $('refresh').onclick=()=>run(loadProjects);
+$('reconnect').onclick=()=>run(loadProjects);
 $('site').onchange=()=>{state();$('project').value=local[$('site').value]?.projectId??'';run(()=>memories())};
 $('project').onchange=()=>run(()=>memories());$('filter').onchange=()=>run(()=>memories());$('more').onclick=()=>run(()=>memories(nextOffset));
 run(loadProjects);
+setInterval(()=>{if(connected)run(async()=>{await send({type:'CHECK'})});},10000);
 
 document.querySelector('#open-app').addEventListener('click',()=>chrome.tabs.create({url:chrome.runtime.getURL('app.html')}));

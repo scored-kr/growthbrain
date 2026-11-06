@@ -62,6 +62,7 @@ export async function dispatch(message,sender){
     throw Error('INVALID_REQUEST');
   }
   if(sender.id!==chrome.runtime.id||sender.url!==popupUrl)throw Error('POPUP_REQUIRED');
+  if(message.type==='CHECK')return await native('check_vault',{});
   if(message.type==='PROJECTS'){
     const remote=await native('list_projects',{}),local=await settings();let reconciled=false;
     for(const site of sites){
