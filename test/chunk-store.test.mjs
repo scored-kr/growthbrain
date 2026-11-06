@@ -14,7 +14,7 @@ const save=async(file,value)=>writeFile(file,JSON.stringify(value),{mode:0o600})
 test('chunk migration preserves original ciphertext; one-record edits reuse other encrypted objects and hide metadata',async t=>{
  const f=await setup(t),ids=await f.vault.mutate(e=>Array.from({length:100},(_,i)=>approve(e,proposal({type:'project',projectId:f.project.id},`condition_${i}`,`PRIVATE_VALUE_${i}`))));
  const before=await disk(f.directory);await f.vault.upgradeStorage();const checkpoint=f.vault.storageCheckpoint();assert.ok(checkpoint.objects.length>20);
- const backups=(await readdir(f.directory)).filter(n=>n.startsWith('pre-state-v8-'));assert.equal(backups.length,1);assert.deepEqual(JSON.parse(await readFile(join(f.directory,backups[0]),'utf8')),JSON.parse(before));
+ const backups=(await readdir(f.directory)).filter(n=>n.startsWith('pre-state-v9-'));assert.equal(backups.length,1);assert.deepEqual(JSON.parse(await readFile(join(f.directory,backups[0]),'utf8')),JSON.parse(before));
  const oldBytes=new Map(await Promise.all(checkpoint.objects.map(async h=>[h,await readFile(join(f.directory,'objects',`${h}.json`),'utf8')])));
  await f.vault.mutate(e=>e.pinMemory(f.project.id,ids[0],true));const delta=join(f.root,'delta.enc'),result=await f.vault.exportDelta(delta,checkpoint);assert.equal(result.changedObjects,1);
  for(const [id,bytes] of oldBytes)assert.equal(await readFile(join(f.directory,'objects',`${id}.json`),'utf8'),bytes);

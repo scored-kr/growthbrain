@@ -73,6 +73,13 @@ test('real stdio MCP transport retrieves scoped memory, records candidates, deni
   assert.equal((await invoke('search_memory',{projectId:project.id,query:'CANDIDATE_ONLY'})).value.matches.length,1);
   const override=await invoke('get_context',{projectId:project.id,requestConditions:{tone:'이번에는 짧게'}});
   assert.equal(override.value.conditions.find(x=>x.key==='tone').value,'이번에는 짧게');
+  const aliasOverride=await invoke('get_context',{projectId:project.id,requestConditions:{response_tone:'Alias request'}});
+  assert.equal(aliasOverride.value.conditions.find(c=>c.key==='tone').value,'Alias request');
+  const aliasSearch=await invoke('search_memory',{projectId:project.id,query:'어조',requestConditions:{output_tone:'Alias request'}});
+  assert.equal(aliasSearch.value.matches.length,0);
+  const aliasConflict=await invoke('get_context',{requestConditions:{tone:'one',response_tone:'two'}});
+  assert.equal(aliasConflict.raw.isError,true);assert.equal(aliasConflict.value.error,'AMBIGUOUS_REQUEST_CONDITIONS');
+  assert.match(aliasConflict.value.nextAction,/Ask which value/);
   const h=await invoke('propose_handoff',{projectId:project.id,goal:'PRIVATE_HANDOFF_GOAL',completed:[{claim:'Draft completed',evidence:'Synthetic review reference'}],blockers:[],nextActions:['Write the next draft using current conditions'],observedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+86400000).toISOString(),source:{kind:'ai',reference:'synthetic:handoff',excerpt:'Claim requires review'}});
   assert.equal(h.value.status,'candidate');assert.equal((await invoke('get_context',{projectId:project.id})).value.handoff.status,'none');
   const cannotReview=await client.callTool({name:'review_handoff',arguments:{projectId:project.id,id:h.value.id,decision:'approve'}});assert.equal(cannotReview.isError,true);

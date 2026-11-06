@@ -90,8 +90,10 @@ const taskStateSchema=agentStateSchema.extend({version:z.literal(5),memories:z.a
 const importStateSchema=taskStateSchema.extend({version:z.literal(6),captures:z.array(captureSchema).max(5000)}).strict();
 const handoffStateSchema=importStateSchema.extend({version:z.literal(7),memories:z.array(memorySchema).max(10000),handoffs:z.array(handoffSchema).max(1000)}).strict();
 const usageCounter=z.object({units:z.number().int().nonnegative(),minute:z.number().int().nonnegative(),calls:z.number().int().nonnegative()}).strict();
-export const STATE_VERSION=8;
-export const stateSchema=handoffStateSchema.extend({version:z.literal(STATE_VERSION),inferenceUsage:z.object({day:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),...usageCounter.shape,projects:z.record(identifier,usageCounter)}).strict()}).strict();
+const inferenceStateSchema=handoffStateSchema.extend({version:z.literal(8),inferenceUsage:z.object({day:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),...usageCounter.shape,projects:z.record(identifier,usageCounter)}).strict()}).strict();
+// Cross-alias supersession requires the v9 interpretation contract.
+export const STATE_VERSION=9;
+export const stateSchema=inferenceStateSchema.extend({version:z.literal(STATE_VERSION)}).strict();
 export function parseState(state: unknown) {
   const inferenceUsage={day:'1970-01-01',units:0,minute:0,calls:0,projects:{}};
   const additions={agentBindings:[],agentCaptures:[],projectTriggers:[]};
@@ -115,6 +117,9 @@ export function parseState(state: unknown) {
   }
   if(typeof state==='object' && state!==null && 'version' in state && state.version===7) {
     return stateSchema.parse({...handoffStateSchema.parse(state),version:STATE_VERSION,inferenceUsage});
+  }
+  if(typeof state==='object' && state!==null && 'version' in state && state.version===8) {
+    return stateSchema.parse({...inferenceStateSchema.parse(state),version:STATE_VERSION});
   }
   return stateSchema.parse(state);
 }

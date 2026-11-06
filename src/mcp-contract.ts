@@ -7,10 +7,11 @@ const routingSchema = z.object({
   candidateProjectIds: z.array(identifier).max(1000),
 }).strict();
 const condition = { key: proposalSchema.shape.key, value: proposalSchema.shape.value };
-const stored = { ...condition, memoryId: identifier, source: sourceSchema, reason: proposalSchema.shape.reason, pinned:z.boolean().optional(), supersedesId: identifier.optional(),applicability:applicabilitySchema.optional() };
+const stored = { ...condition, storedKey:proposalSchema.shape.key.optional(), memoryId: identifier, source: sourceSchema, reason: proposalSchema.shape.reason, pinned:z.boolean().optional(), supersedesId: identifier.optional(),applicability:applicabilitySchema.optional() };
+const conflictSelection={keyConflicts:z.array(z.object({key:proposalSchema.shape.key,origin:z.enum(['global','project']),memoryIds:z.array(identifier).min(2).max(10)}).strict()).max(50),keyConflictCount:z.number().int().nonnegative()};
 const taskSelection={taskType:taskTypeSchema.nullable(),taskExcludedCount:z.number().int().nonnegative()};
 export const contextOutputSchema = z.object({
-  ...taskSelection,
+  ...taskSelection,...conflictSelection,
   handoff:z.discriminatedUnion('status',[z.object({status:z.enum(['none','stale','omitted'])}).strict(),z.object({status:z.literal('current'),verification:z.literal('user_reviewed_claims_not_independently_verified'),record:handoffSchema}).strict()]),
   projectId: identifier.nullable(), routing: routingSchema,
   searchedScopes: z.array(z.string()).min(1).max(2),
@@ -24,9 +25,9 @@ export const contextOutputSchema = z.object({
   disclosure: z.string().min(1),
 }).strict();
 export const searchOutputSchema = z.object({
-  ...taskSelection,
+  ...taskSelection,...conflictSelection,
   matches: z.array(z.object({
-    id: identifier, ...condition, scope: scopeSchema, source: sourceSchema, reason: proposalSchema.shape.reason,applicability:applicabilitySchema.optional(),
+    id: identifier, ...condition, storedKey:proposalSchema.shape.key.optional(), scope: scopeSchema, source: sourceSchema, reason: proposalSchema.shape.reason,applicability:applicabilitySchema.optional(),
     score: z.number().nonnegative(), matchedTerms: z.array(z.string()),
     matchedTopics: z.array(z.enum(['language', 'tone', 'format', 'audience', 'budget', 'deadline', 'brand', 'cta'])),
   }).strict()).max(50),

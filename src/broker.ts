@@ -40,9 +40,11 @@ export const safeError = (e: unknown) => e instanceof Error && safeErrors.has(e.
 for (const code of ['INVALID_REQUEST', 'INVALID_RESPONSE', 'REQUEST_TOO_LARGE', 'RESPONSE_TOO_LARGE']) safeErrors.add(code);
 safeErrors.add('IMPORT_PROJECT_MISMATCH');
 safeErrors.add('PROJECT_ACCESS_DENIED');
+safeErrors.add('AMBIGUOUS_REQUEST_CONDITIONS');
 for(const code of ['MULTIPLE_SUPERSESSIONS_REQUIRED','HANDOFF_LIMIT','INVALID_HANDOFF_TIME'])safeErrors.add(code);
 
 export function errorNextAction(code: string): string {
+  if(code==='AMBIGUOUS_REQUEST_CONDITIONS')return 'The current request supplies conflicting values for equivalent preference keys. Ask which value applies; do not silently choose one.';
   if(code==='PROJECT_ACCESS_DENIED')return 'This connection is restricted to the locally approved project or common preferences. Ask the user to review its scope in the local terminal; do not try other project IDs.';
   if (code === 'REQUEST_TOO_LARGE' || code === 'REQUEST_CONDITION_LIMIT') return 'Reduce the number or length of explicit request conditions and retry. Do not split a write into automatic duplicate proposals.';
   if (code === 'RESPONSE_TOO_LARGE') return 'Request fewer records or a narrower query. Do not repeat a write automatically; inspect its status in the local terminal.';

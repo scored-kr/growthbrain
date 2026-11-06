@@ -62,5 +62,5 @@ test('v7 migration preserves source ciphertext before usage accounting',async t=
  const directory=await mkdtemp(join(tmpdir(),'gb-analysis-v8-')),owner=randomUUID(),password=randomBytes(24).toString('base64url');t.after(()=>rm(directory,{recursive:true,force:true}));
  const e=MemoryEngine.empty(owner),project=e.addProject('synthetic');const {inferenceUsage,...old}=e.snapshot();old.version=7;
  const salt=randomBytes(16),key=await derive(password,salt),envelope=seal({snapshot:()=>old},key,{version:1,ownerId:owner,salt:salt.toString('base64')});key.fill(0);await writeFile(join(directory,'vault.json'),JSON.stringify(envelope),{mode:0o600});
- const vault=await VaultSession.open(directory,owner,password);try{await vault.mutate(e=>e.reserveInference(project.id,10));const names=(await readdir(directory)).filter(n=>n.startsWith('pre-state-v8-'));assert.equal(names.length,1);assert.deepEqual(JSON.parse(await readFile(join(directory,names[0]),'utf8')),envelope);}finally{await vault.close()}
+ const vault=await VaultSession.open(directory,owner,password);try{await vault.mutate(e=>e.reserveInference(project.id,10));const names=(await readdir(directory)).filter(n=>n.startsWith('pre-state-v9-'));assert.equal(names.length,1);assert.deepEqual(JSON.parse(await readFile(join(directory,names[0]),'utf8')),envelope);}finally{await vault.close()}
 });

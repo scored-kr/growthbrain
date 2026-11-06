@@ -31,7 +31,8 @@ with tempfile.TemporaryDirectory(prefix='gb-terminal-') as directory:
                 transcript += data
         index = pending.index(marker)+len(marker)
         result, pending = pending[:index], pending[index:]
-        return result
+        # Node inspect colors booleans on CI TTYs; compare visible terminal text.
+        return re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', result)
     def send(text): os.write(master,(text+'\r').encode())
     try:
         until('Local vault passphrase'); until(': '); send(password)
