@@ -7,7 +7,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/build-browser-modules.mjs",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node --test test/*.test.mjs",
     "test:terminal": "npm run build && python3 test/terminal-smoke.py && python3 test/lock-terminal.py && python3 test/deletion-terminal.py",
@@ -19,7 +19,7 @@
     "test:hooks:codex": "npm run build && node test/agent-codex-session.mjs",
     "test:codex": "npm run build && node test/codex-session.mjs",
     "test:browser": "npm run build && node test/browser-session.mjs",
-    "test:ui": "node test/ui-fixtures.mjs && node test/import-ui.mjs && node test/app-ui.mjs",
+    "test:ui": "node test/ui-fixtures.mjs && node test/import-ui.mjs && node test/app-ui.mjs && node test/account-ui.mjs",
     "test:native-install": "npm run build && python3 test/native-install.py",
     "mcp": "node dist/mcp.js",
     "vault": "node dist/cli.js",
