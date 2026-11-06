@@ -47,7 +47,20 @@ with tempfile.TemporaryDirectory(prefix='gb-recovery-terminal-') as temp:
         t.until('Export a NEW encrypted backup now');t.finish()
         assert not (vault/'memory.sock').exists()
         t=start('serve',vault);t.password(password);t.connect()
+        t.send('storage-upgrade');t.until('Type UPGRADE to switch storage: ');t.send('UPGRADE');t.until('growth-brain> ')
+        assert json.loads((vault/'vault.json').read_text())['format']=='growth-brain-chunks'
+        seed, checkpoint = root/'seed.delta', root/'checkpoint.json'
+        t.send('storage-export');t.until('delta file path: ');t.send(str(seed));t.until('complete snapshot: ');t.send('');t.until('checkpoint JSON file path: ');t.send(str(checkpoint));t.until('growth-brain> ')
+        assert 'headHash' in json.loads(checkpoint.read_text())
+        t.send('project');t.until('Project name: ');t.send('PTY_INCREMENTAL_PROJECT');t.until('growth-brain> ')
+        delta=root/'changes.delta'
+        t.send('storage-export');t.until('delta file path: ');t.send(str(delta));t.until('complete snapshot: ');t.send(str(checkpoint));t.until('checkpoint JSON file path: ');t.send(str(root/'new-checkpoint.json'));t.until('growth-brain> ')
         t.send('backup');t.until('private directory: ');t.send(str(backup));t.until('growth-brain> ')
+        t.send('lock');t.finish()
+        replica=root/'replica';t=start('restore',replica,seed);t.password(password);t.connect()
+        t.send('projects');assert 'PTY_INCREMENTAL_PROJECT' not in t.until('growth-brain> ')
+        t.send('storage-apply');t.until('delta file path: ');t.send(str(delta));t.until('Type APPLY to import this delta: ');t.send('APPLY');t.until('growth-brain> ')
+        t.send('projects');assert 'PTY_INCREMENTAL_PROJECT' in t.until('growth-brain> ')
         t.send('lock');t.finish()
         before=backup.read_bytes()
         t=start('recover',recovered,backup)
@@ -62,6 +75,6 @@ with tempfile.TemporaryDirectory(prefix='gb-recovery-terminal-') as temp:
         recovery_key=json.loads(key_file.read_text())['key']
         for secret in [password,new_password,recovery_key]:
             assert secret not in transcript, 'A synthetic credential appeared in terminal output'
-        print(json.dumps({'actual_pty_recovery_issuance_backup_password_loss_restore_reopen':'passed','secret_echo':False}))
+        print(json.dumps({'actual_pty_recovery_issuance_backup_password_loss_restore_reopen':'passed','chunk_storage_delta':True,'secret_echo':False}))
     finally:
         for terminal in terminals: terminal.cleanup()

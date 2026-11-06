@@ -129,3 +129,5 @@ AI가 조립한 현재 요청이나 기억의 의미를 암호화가 검증하�
 확장 팝업의 **기억 관리 열기**에서 [로컬 관리 화면](local-management.md)을 엽니다. `npm run test:ui`는 관리 화면의 실제 native/broker/합성 금고 연결도 검사합니다. 설치된 확장 검증과는 구분합니다.
 
 선택적 기기 내 모델 분석: [local-inference.md](local-inference.md). `analysis-enable` / `analysis-stop`은 로컬 사용자 터미널 명령이며 MCP에 노출하지 않습니다.
+
+분할 저장은 로컬 터미널의 `storage-upgrade`로 명시 전환합니다. 기존 전체 암호문과 복구 가능한 전체 백업을 보존합니다. 증분 파일 사용법과 현재 네트워크 동기화 미연결 범위는 [chunk-storage.md](chunk-storage.md)를 확인하세요.

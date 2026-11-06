@@ -5,6 +5,7 @@ import { readFile, realpath } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
 import { VaultSession } from './vault.js';
 import { startBroker } from './broker.js';
+import {writePrivateJSON} from './secure-files.js';
 import {LocalInference} from './local-inference.js';
 import { startWebMcp } from './web-mcp.js';
 
@@ -84,14 +85,26 @@ try {
   const consent = await input.question('Type CONNECT to enable the local MCP connection, or press Enter to close: ');
   if (consent !== 'CONNECT') { await close(); process.exit(0); }
   broker = await startBroker(vault, directory,{getInference:()=>inference});
-  console.log('Connected locally. Commands: projects, project, memories, propose, propose-task, candidates, review, correct, retire, analysis-enable, analysis-stop, handoffs, handoff-propose, handoff-review, handoff-retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, web-start, web-requests, web-approve, web-deny, web-connections, web-revoke, web-audit, web-stop, delete-all, lock');
+  console.log('Connected locally. Commands: projects, project, memories, propose, propose-task, candidates, review, correct, retire, analysis-enable, analysis-stop, handoffs, handoff-propose, handoff-review, handoff-retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, storage-upgrade, storage-export, storage-apply, storage-prune, web-start, web-requests, web-approve, web-deny, web-connections, web-revoke, web-audit, web-stop, delete-all, lock');
   const end = () => { void close().finally(() => process.exit(0)); };
   process.once('SIGTERM', end); process.once('SIGINT', end);
   while (true) {
     const action = (await input.question('growth-brain> ')).trim();
     if (action === 'lock') break;
     try {
-      if(action==='analysis-enable'){
+      if(action==='storage-upgrade'){
+        console.log('This preserves the original encrypted vault, then switches to encrypted objects and an atomic manifest. Full backups remain compatible.');
+        if(await input.question('Type UPGRADE to switch storage: ')==='UPGRADE')console.log(await vault.upgradeStorage());
+      }else if(action==='storage-export'){
+        const destination=await input.question('New encrypted delta file path: '),base=await input.question('Previous checkpoint JSON path, or Enter for a complete snapshot: ');
+        const checkpointPath=await input.question('New checkpoint JSON file path: ');const result=await vault.exportDelta(destination,base?JSON.parse(await readFile(resolve(base),'utf8')):undefined);await writePrivateJSON(resolve(checkpointPath),result.checkpoint,true);console.log({encrypted:true,changedObjects:result.changedObjects,checkpointSaved:true});
+        console.log('Save checkpoint metadata only for the acknowledged destination. A delta is not a full recovery backup; also use backup.');
+      }else if(action==='storage-apply'){
+        const file=await input.question('Encrypted delta file path: ');console.log('A valid delta replaces this snapshot only when its authenticated ancestry includes the current snapshot. Divergent work is never merged automatically.');
+        if(await input.question('Type APPLY to import this delta: ')==='APPLY')console.log(await vault.applyDelta(file));
+      }else if(action==='storage-prune'){
+        if(await input.question('Remove unreferenced encrypted objects; exported backups remain. Type PRUNE: ')==='PRUNE')console.log(await vault.pruneStorage());
+      }else if(action==='analysis-enable'){
         const config=JSON.parse(await readFile(resolve(await input.question('Local model config path (url/model; see docs/local-inference.md): ')),'utf8'));
         console.log('Optional analysis sends one candidate and same-scope conflicts to your loopback model. Verify this local service does not relay data to a cloud. Results are unverified advice; approval stays manual.');
         if(await input.question('Type LOCAL to enable until this terminal closes: ')==='LOCAL'){const next=new LocalInference(config);inference?.close();inference=next;console.log('Local analysis enabled. Use the management review card.');}
@@ -193,7 +206,7 @@ try {
           }
           break;
         }
-      } else console.log('Commands: projects, project, memories, propose, propose-task, candidates, review, correct, retire, analysis-enable, analysis-stop, handoffs, handoff-propose, handoff-review, handoff-retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, web-start, web-requests, web-approve, web-deny, web-connections, web-revoke, web-audit, web-stop, delete-all, lock');
+      } else console.log('Commands: projects, project, memories, propose, propose-task, candidates, review, correct, retire, analysis-enable, analysis-stop, handoffs, handoff-propose, handoff-review, handoff-retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, storage-upgrade, storage-export, storage-apply, storage-prune, web-start, web-requests, web-approve, web-deny, web-connections, web-revoke, web-audit, web-stop, delete-all, lock');
     } catch { console.log('Action failed. Check the project/candidate ID, explicit replacement, and field limits. No approval was assumed.'); }
   }
   await close();
