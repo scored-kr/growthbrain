@@ -27,9 +27,11 @@
     "verify:skills": "node scripts/verify-skills.mjs",
     "doctor:ign8t": "node scripts/ign8t-doctor.mjs",
     "test:ign8t-install": "python3 test/ign8t-install.py",
-    "test:local": "npm test && npm run verify:skills && npm run test:ign8t-install && npm run test:install && npm run test:agent-install && npm run test:native-install && npm run test:terminal && npm run test:recovery && npm run test:ui",
+    "test:local": "npm test && npm run verify:skills && npm run test:ign8t-install && npm run test:install && npm run test:agent-install && npm run test:native-install && npm run test:terminal && npm run test:recovery && npm run test:ui && npm run test:schema-guards",
     "validate:extension": "npm run build && node scripts/validate-extension.mjs",
-    "test:personalization": "npm run build && node test/personalization-evaluation.mjs"
+    "test:personalization": "npm run build && node test/personalization-evaluation.mjs",
+    "inspect:supabase": "python3 scripts/inspect-supabase-schema.py",
+    "test:schema-guards": "python3 test/schema-inspector.py"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
@@ -37,6 +39,7 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.15",
     "@types/express": "5.0.6",
     "@types/node": "24.19.2",
     "playwright": "1.64.1",

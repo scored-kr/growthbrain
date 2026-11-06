@@ -402,3 +402,12 @@ HTTP 잠금해제·승인·후보 쓰기는 없다. 기존 stdio/확장 관리 �
 - 권한 철회 중 늦은 ENABLE 응답 무효화, native 중지 실패에도 로컬 중지 유지, 실제 native 승인/기각/대체/사용 중지와 별도 MCP 조회를 검증했다.
 - npm run test:local Node117/117·설치/해제·PTY·복구·4종 Chromium UI 통과. 마지막 native 기각 사례도 별도 재검증 통과.
 - 보드46bcfff4의 명시적 구현 AC(합성 브라우저+실제 프로토콜) 완료. 설치된 확장/로그인 사이트는 ExtensionInstallBlocklist=["*"] 차단이 유지되어 ead9b252/0a7cf586의 실기기 검증에서 계속 추적한다. 정책을 우회하거나 실제 웹 AI 성공으로 계산하지 않았다.
+
+## 챕터39 — 기존 Supabase용 읽기 전용 점검기 (2026-11-06)
+
+- 안전한 환경 바인딩만 받는 고정 프로젝트 검사, psql 자격 증명 인자 미노출·TLS verify-full·시작 설정 격리·읽기 전용 이중 강제·고정 카탈로그 SQL·시간/크기 한도. 애플리케이션 행을 읽거나 초기 SQL을 실행하지 않는다.
+- RLS/정책/인덱스/제약/트리거와 정확한20261102050000 이력 존재를 보고한다. 결과가 맞아도 계정 격리/암호문 구조 확인 없이 재사용 가능으로 판정하거나 쓰기를 허용하지 않는다.
+- Python CLI 경계 검사와 PostgreSQL WASM의 실제 SQL/READ ONLY 쓰기 거부 검증을 추가했다. PGlite는 검증 전용이며 실제 Supabase 연결 증거가 아니다. [점검 안내](supabase-readonly-inspection.md).
+- 현재 실제 점검 실행은 MISSING_SAFE_DB_BINDING/종료1로 차단됐다. 원격 schema/RLS 버전은 미확인 유지.
+
+챕터39 최종 `npm run test:local` 통과: Node119/119, Python 점검기4/4, 스킬·설치/해제·PTY·복구·4종 Chromium UI. 확장 정적 검사 통과.
