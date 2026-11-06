@@ -28,6 +28,7 @@ try{
  await page.addInitScript(({id})=>{window.fixture={saved:{managementProject:id},hold:false};window.chrome={storage:{local:{get:async()=>fixture.saved,set:async v=>Object.assign(fixture.saved,v)}},runtime:{sendMessage:async m=>{const r=await window.nativeCall(m);if(fixture.hold&&m.method==='list_memories'){fixture.hold=false;await new Promise(resolve=>fixture.release=resolve)}return r}}}}, {id:project.id});
  await page.goto('https://growthbrain.test/app.html');await page.getByText('로컬 금고 연결됨.',{exact:true}).waitFor();assert.match(await page.locator('.metrics').textContent(),/확정 기억1.*검토 후보1/);
  await page.getByRole('link',{name:'검토 대기',exact:true}).click();await page.getByRole('button',{name:'검토하기',exact:true}).click();
+ await page.getByRole('button',{name:'선택적 로컬 충돌 분석',exact:true}).click();await page.getByText('로컬 분석이 꺼져 있습니다.',{exact:false}).waitFor();
  assert.equal(await page.locator('img').count(),0);assert.equal(await page.evaluate(()=>window.injected),undefined);
  await page.getByRole('button',{name:'승인',exact:true}).click();await page.getByText('교체 여부를 먼저 확인하세요.',{exact:true}).waitFor();assert.equal(vault.read(e=>e.snapshot().memories.find(m=>m.id===candidate.id).status),'candidate');
  await page.getByLabel('위 기존 기억을 이 후보로 교체하는 데 동의합니다.').check();await page.getByRole('button',{name:'승인',exact:true}).click();await page.getByText('아직 표시할 항목이 없습니다.',{exact:true}).waitFor();assert.equal(vault.read(e=>e.snapshot().memories.find(m=>m.id===first).status),'superseded');

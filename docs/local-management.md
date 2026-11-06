@@ -19,3 +19,5 @@ Chrome 확장 팝업의 **기억 관리 열기**에서 확장 소유 관리 탭�
 검증: `test/app-ui.mjs`는 실제 Chromium 화면 → 모의 Chrome runtime → 실제 native 프레이밍 → 실제 broker → 합성 암호화 금고로 승인·교체·수정·핀·인계·조회·잠금·프로젝트 응답 경합을 확인한다. 설치된 확장, 로그인된 ChatGPT/Claude, 실제 AI 개인화의 검증은 아니다.
 
 기존 보드의 `packages/web`, Next/Fastify 서버 평문 조회, 자동 입력창 주입, 평문 IndexedDB 캐시는 현재 사용자 요구와 다르다. 현재 구현은 기존 `extension/`, `src/` 구조를 재사용하고 실제 AI 전달은 제품 MCP로 처리한다.
+
+후보 검토창의 선택적 충돌 분석은 [로컬 추론](local-inference.md)이 사용자 터미널에서 켜진 경우에만 실행됩니다. 모델의 결과는 조언이며 사용자가 수정·별도 승인해야 합니다.

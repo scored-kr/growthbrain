@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { agentCaptureInputSchema, agentClientSchema, workspaceSchema, captureInputSchema, consentSchema, contextSchema, identifier, proposalSchema, searchSchema } from './model.js';
 import { privateDirectory, type VaultSession } from './vault.js';
+import type {LocalInference} from './local-inference.js';
 import { chatImportInputSchema, handoffProposalSchema } from './model.js';
 
 const requestSchema = z.discriminatedUnion('method', [
@@ -18,6 +19,7 @@ const requestSchema = z.discriminatedUnion('method', [
   z.object({method:z.literal('dashboard'),params:z.object({projectId:identifier}).strict()}).strict(),
   z.object({method:z.literal('list_captures'),params:z.object({projectId:identifier,offset:z.number().int().min(0).max(5000).default(0)}).strict()}).strict(),
   z.object({method:z.literal('check_vault'),params:z.object({}).strict()}).strict(),
+  z.object({method:z.literal('analyze_candidate'),params:z.object({projectId:identifier,id:identifier}).strict()}).strict(),
   // Local native-messaging/UI operations; these are never registered as MCP tools.
   z.object({method:z.literal('import_chat'),params:chatImportInputSchema}).strict(),
   z.object({method:z.literal('create_project'),params:z.object({name:z.string().trim().min(1).max(200)}).strict()}).strict(),
@@ -50,7 +52,7 @@ export function errorNextAction(code: string): string {
   return 'Inspect the local Growth Brain terminal for the operation status. Do not repeat a write automatically. Never supply a password or recovery key in chat or MCP arguments.';
 }
 
-export async function startBroker(vault: VaultSession, directory: string) {
+export async function startBroker(vault: VaultSession, directory: string, options:{getInference?:()=>LocalInference|undefined}={}) {
   await privateDirectory(directory);
   const path = join(directory, 'memory.sock');
   const sockets = new Set<Socket>();
@@ -89,6 +91,7 @@ export async function startBroker(vault: VaultSession, directory: string) {
         else if(method==='dashboard')result=vault.read(e=>e.dashboard(params.projectId));
         else if(method==='list_captures')result=vault.read(e=>e.listCaptures(params.projectId,params.offset));
         else if(method==='check_vault'){vault.assertUnlocked();result={unlocked:true};}
+        else if(method==='analyze_candidate'){const inference=options.getInference?.();result=inference?await inference.evaluate(vault,params.projectId,params.id):{outcome:'manual_review',reason:'disabled'};}
         else if(method==='list_projects')result=vault.read(e=>({projects:e.snapshot().projects,settings:e.snapshot().captureSettings}));
         else if(method==='configure_capture')result=await vault.mutate(e=>e.configureCapture(params));
         else if(method==='capture')result=await vault.mutate(e=>e.capture(params));

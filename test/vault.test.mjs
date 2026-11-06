@@ -9,22 +9,22 @@ import { proposal, approve } from './helpers.mjs';
 import { MemoryEngine } from '../dist/engine.js';
 import { derive,seal,decrypt } from '../dist/envelope.js';
 
-test('opening a v3 state preserves an authenticated encrypted backup before the first v7 write',async()=>{
+test('opening a v3 state preserves an authenticated encrypted backup before the first v8 write',async()=>{
   const root=await mkdtemp(join(tmpdir(),'gb-migration-')),owner=randomUUID(),password=randomBytes(24).toString('base64url');
   let vault;
   try {
-    const {agentBindings,agentCaptures,projectTriggers,handoffs,...old}=MemoryEngine.empty(owner).snapshot();old.version=3;
+    const {agentBindings,agentCaptures,projectTriggers,handoffs,inferenceUsage,...old}=MemoryEngine.empty(owner).snapshot();old.version=3;
     const salt=randomBytes(16),key=await derive(password,salt);
     const envelope=seal({snapshot:()=>old},key,{version:1,ownerId:owner,salt:salt.toString('base64')});key.fill(0);
     const original=JSON.stringify(envelope);await writeFile(join(root,'vault.json'),original,{mode:0o600});
     vault=await VaultSession.open(root,owner,password);
-    const backups=(await readdir(root)).filter(x=>x.startsWith('pre-state-v7-'));
+    const backups=(await readdir(root)).filter(x=>x.startsWith('pre-state-v8-'));
     assert.equal(backups.length,1);const backupBytes=await readFile(join(root,backups[0]),'utf8');assert.deepEqual(JSON.parse(backupBytes),envelope);
     await vault.mutate(e=>e.addProject('after migration'));
     assert.equal(await readFile(join(root,backups[0]),'utf8'),backupBytes);
     const previous=await decrypt(JSON.parse(backupBytes),owner,password);assert.equal(previous.sourceStateVersion,3);previous.key.fill(0);
     const opened=await decrypt(JSON.parse(await readFile(join(root,'vault.json'),'utf8')),owner,password);
-    assert.equal(opened.sourceStateVersion,7);opened.key.fill(0);
+    assert.equal(opened.sourceStateVersion,8);opened.key.fill(0);
   } finally {await vault?.close();await rm(root,{recursive:true,force:true});}
 });
 
@@ -32,12 +32,12 @@ test('local deletion removes generated migration snapshots and preserves explici
   const f = await setup(t); await f.session.close();
   const engine = MemoryEngine.empty(f.owner);
   engine.addProject('SYNTHETIC_HISTORICAL_PROJECT');
-  const { agentBindings, agentCaptures, projectTriggers, handoffs, ...old } = engine.snapshot(); old.version = 3;
+  const { agentBindings, agentCaptures, projectTriggers, handoffs, inferenceUsage, ...old } = engine.snapshot(); old.version = 3;
   const salt = randomBytes(16), key = await derive(f.password, salt);
   const envelope = seal({ snapshot: () => old }, key, { version: 1, ownerId: f.owner, salt: salt.toString('base64') }); key.fill(0);
   await writeFile(join(f.directory, 'vault.json'), JSON.stringify(envelope));
   f.session = await VaultSession.open(f.directory, f.owner, f.password);
-  const automatic = (await readdir(f.directory)).filter(name => name.startsWith('pre-state-v7-'));
+  const automatic = (await readdir(f.directory)).filter(name => name.startsWith('pre-state-v8-'));
   assert.equal(automatic.length, 1);
   const historical = await decrypt(JSON.parse(await readFile(join(f.directory, automatic[0]), 'utf8')), f.owner, f.password);
   assert.equal(historical.engine.snapshot().projects[0].name, 'SYNTHETIC_HISTORICAL_PROJECT'); historical.key.fill(0);

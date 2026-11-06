@@ -51,7 +51,7 @@ export async function dispatch(message,sender){
     }
   }
   if(sender.id===chrome.runtime.id&&sender.url?.split('#')[0]===appUrl){
-    const methods=['check_vault','list_projects','create_project','dashboard','list_memories','review_memory','correct_candidate','retire_memory','pin_memory','get_context','search_memory','propose_memory','list_captures','propose_handoff','list_handoffs','review_handoff','retire_handoff'];
+    const methods=['analyze_candidate','check_vault','list_projects','create_project','dashboard','list_memories','review_memory','correct_candidate','retire_memory','pin_memory','get_context','search_memory','propose_memory','list_captures','propose_handoff','list_handoffs','review_handoff','retire_handoff'];
     if(message.type!=='APP_CALL'||!methods.includes(message.method))throw Error('INVALID_REQUEST');
     return await native(message.method,message.params);
   }

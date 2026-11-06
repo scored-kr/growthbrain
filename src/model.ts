@@ -88,27 +88,33 @@ const reviewStateSchema=captureStateSchema.extend({version:z.literal(3),memories
 const agentStateSchema=reviewStateSchema.extend({version:z.literal(4),agentBindings:z.array(agentBindingSchema).max(1000),agentCaptures:z.array(agentCaptureSchema).max(5000),projectTriggers:z.array(projectTriggerSchema).max(1000)}).strict();
 const taskStateSchema=agentStateSchema.extend({version:z.literal(5),memories:z.array(taskMemorySchema).max(10000)}).strict();
 const importStateSchema=taskStateSchema.extend({version:z.literal(6),captures:z.array(captureSchema).max(5000)}).strict();
-export const STATE_VERSION=7;
-export const stateSchema=importStateSchema.extend({version:z.literal(STATE_VERSION),memories:z.array(memorySchema).max(10000),handoffs:z.array(handoffSchema).max(1000)}).strict();
+const handoffStateSchema=importStateSchema.extend({version:z.literal(7),memories:z.array(memorySchema).max(10000),handoffs:z.array(handoffSchema).max(1000)}).strict();
+const usageCounter=z.object({units:z.number().int().nonnegative(),minute:z.number().int().nonnegative(),calls:z.number().int().nonnegative()}).strict();
+export const STATE_VERSION=8;
+export const stateSchema=handoffStateSchema.extend({version:z.literal(STATE_VERSION),inferenceUsage:z.object({day:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),...usageCounter.shape,projects:z.record(identifier,usageCounter)}).strict()}).strict();
 export function parseState(state: unknown) {
+  const inferenceUsage={day:'1970-01-01',units:0,minute:0,calls:0,projects:{}};
   const additions={agentBindings:[],agentCaptures:[],projectTriggers:[]};
   if(typeof state==='object' && state!==null && 'version' in state && state.version===1) {
-    return stateSchema.parse({...legacyStateSchema.parse(state),version:STATE_VERSION,handoffs:[],captures:[],captureSettings:[],...additions});
+    return stateSchema.parse({...legacyStateSchema.parse(state),version:STATE_VERSION,inferenceUsage,handoffs:[],captures:[],captureSettings:[],...additions});
   }
   if(typeof state==='object' && state!==null && 'version' in state && state.version===2) {
-    return stateSchema.parse({...captureStateSchema.parse(state),version:STATE_VERSION,handoffs:[],...additions});
+    return stateSchema.parse({...captureStateSchema.parse(state),version:STATE_VERSION,inferenceUsage,handoffs:[],...additions});
   }
   if(typeof state==='object' && state!==null && 'version' in state && state.version===3) {
-    return stateSchema.parse({...reviewStateSchema.parse(state),version:STATE_VERSION,handoffs:[],...additions});
+    return stateSchema.parse({...reviewStateSchema.parse(state),version:STATE_VERSION,inferenceUsage,handoffs:[],...additions});
   }
   if(typeof state==='object' && state!==null && 'version' in state && state.version===4) {
-    return stateSchema.parse({...agentStateSchema.parse(state),version:STATE_VERSION,handoffs:[]});
+    return stateSchema.parse({...agentStateSchema.parse(state),version:STATE_VERSION,inferenceUsage,handoffs:[]});
   }
   if(typeof state==='object' && state!==null && 'version' in state && state.version===5) {
-    return stateSchema.parse({...taskStateSchema.parse(state),version:STATE_VERSION,handoffs:[]});
+    return stateSchema.parse({...taskStateSchema.parse(state),version:STATE_VERSION,inferenceUsage,handoffs:[]});
   }
   if(typeof state==='object' && state!==null && 'version' in state && state.version===6) {
-    return stateSchema.parse({...importStateSchema.parse(state),version:STATE_VERSION,handoffs:[]});
+    return stateSchema.parse({...importStateSchema.parse(state),version:STATE_VERSION,inferenceUsage,handoffs:[]});
+  }
+  if(typeof state==='object' && state!==null && 'version' in state && state.version===7) {
+    return stateSchema.parse({...handoffStateSchema.parse(state),version:STATE_VERSION,inferenceUsage});
   }
   return stateSchema.parse(state);
 }

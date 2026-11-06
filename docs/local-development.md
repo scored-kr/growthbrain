@@ -124,6 +124,8 @@ AI가 조립한 현재 요청이나 기억의 의미를 암호화가 검증하�
 
 일반 채팅의 기존 파일은 [ChatGPT·Claude 가져오기 화면](chat-history-import.md)에서 처리한다. 별도 동의와 후보 검토가 필요하며 사이트 수집/MCP 승인 기능과 구분한다.
 
-프로젝트 진행 상태는 [handoff.md](handoff.md)의 `handoff-propose` → 로컬 검토 → `get_context.handoff`로 전달합니다. 내부 상태는 v7이며 이전 금고의 암호문 마이그레이션 백업을 보존합니다.
+프로젝트 진행 상태는 [handoff.md](handoff.md)의 `handoff-propose` → 로컬 검토 → `get_context.handoff`로 전달합니다. 내부 상태는 v8이며 이전 금고의 암호문 마이그레이션 백업을 보존합니다.
 
 확장 팝업의 **기억 관리 열기**에서 [로컬 관리 화면](local-management.md)을 엽니다. `npm run test:ui`는 관리 화면의 실제 native/broker/합성 금고 연결도 검사합니다. 설치된 확장 검증과는 구분합니다.
+
+선택적 기기 내 모델 분석: [local-inference.md](local-inference.md). `analysis-enable` / `analysis-stop`은 로컬 사용자 터미널 명령이며 MCP에 노출하지 않습니다.

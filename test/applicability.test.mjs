@@ -68,7 +68,7 @@ test('invalid applicability and legacy records with undeclared new fields fail c
     assert.throws(()=>engine.search(project.id,'format',20,{},taskType));
   }
   const id=approve(engine,proposal(scope,'format','approved',only('campaign','writing')));
-  const legacy=engine.snapshot();legacy.version=4;delete legacy.handoffs;
+  const legacy=engine.snapshot();legacy.version=4;delete legacy.handoffs;delete legacy.inferenceUsage;
   assert.throws(()=>new MemoryEngine(legacy));
   delete legacy.memories.find(m=>m.id===id).applicability;
   const migrated=new MemoryEngine(legacy);
@@ -79,7 +79,7 @@ test('invalid applicability and legacy records with undeclared new fields fail c
 test('v4 ciphertext is preserved before conditional writes and survives encrypted export/restore',async()=>{
   const root=await mkdtemp(join(tmpdir(),'gb-task-migrate-')),directory=join(root,'vault'),owner=randomUUID(),password=randomBytes(24).toString('base64url');
   const old=MemoryEngine.empty(owner),project=old.addProject('PRIVATE_CONDITIONAL_PROJECT');
-  const originalState=old.snapshot();originalState.version=4;delete originalState.handoffs;
+  const originalState=old.snapshot();originalState.version=4;delete originalState.handoffs;delete originalState.inferenceUsage;
   const salt=randomBytes(16),key=await derive(password,salt),envelope=seal({snapshot:()=>originalState},key,{version:1,ownerId:owner,salt:salt.toString('base64')});key.fill(0);
   const {mkdir}=await import('node:fs/promises');await mkdir(directory,{mode:0o700});
   await writeFile(join(directory,'vault.json'),JSON.stringify(envelope),{mode:0o600});

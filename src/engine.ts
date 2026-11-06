@@ -23,6 +23,7 @@ export class MemoryEngine {
   constructor(state: unknown) {
     this.state = parseState(state);
     const projects = new Set(this.state.projects.map(p => p.id));
+    if(Object.keys(this.state.inferenceUsage.projects).length>1000||Object.keys(this.state.inferenceUsage.projects).some(id=>!projects.has(id)))throw new Error('INVALID_PROJECT_REFERENCE');
     const memories = new Map(this.state.memories.map(m => [m.id,m]));
     if (projects.size !== this.state.projects.length || memories.size !== this.state.memories.length) throw new Error('DUPLICATE_ID');
     if(new Set(this.state.captures.map(c=>c.id)).size!==this.state.captures.length)throw new Error('DUPLICATE_CAPTURE_ID');
@@ -292,6 +293,25 @@ export class MemoryEngine {
     memory.status='retired';memory.retiredAt=new Date().toISOString();memory.retirementReason=parsedReason;
     this.indexes=undefined;
     return {id:memory.id,status:memory.status,historyRetained:true};
+  }
+  inferenceInput(projectId:string,id:string) {
+    this.requireProject(projectId);const candidate=this.state.memories.find(m=>m.id===id&&m.status==='candidate'&&(m.scope.type==='global'||m.scope.projectId===projectId));
+    if(!candidate)throw new Error('CANDIDATE_NOT_FOUND');
+    const conflicts=this.state.memories.filter(m=>m.status==='active'&&m.key===candidate.key&&sameScope(m.scope,candidate.scope)&&conflictingApplicability(m,candidate));
+    const trigger=conflicts.some(m=>m.value!==candidate.value)?'conflict':candidate.applicability?'conditional':/(이것|그것|이거|그거|저거|그대로|이전처럼|that one|same as before)/i.test(candidate.value)?'ambiguous':'none';
+    return {candidate:structuredClone(candidate),conflicts:conflicts.slice(0,11).map(m=>({id:m.id,key:m.key,value:m.value,applicability:m.applicability})),trigger};
+  }
+  reserveInference(projectId:string,units:number,now=Date.now()) {
+    this.requireProject(projectId);if(!Number.isSafeInteger(units)||units<1||units>50000)throw new Error('INFERENCE_BUDGET_LIMIT');
+    const day=new Date(now).toISOString().slice(0,10),minute=Math.floor(now/60000),previous=this.state.inferenceUsage;
+    if(day<previous.day||minute<previous.minute)throw new Error('CLOCK_MOVED_BACKWARD');
+    const usage=day===previous.day?structuredClone(previous):{day,units:0,minute,calls:0,projects:{}};
+    const project=usage.projects[projectId]??{units:0,minute,calls:0};
+    if(usage.minute!==minute){usage.minute=minute;usage.calls=0;}if(project.minute!==minute){project.minute=minute;project.calls=0;}
+    if(usage.calls>=20||project.calls>=20)throw new Error('INFERENCE_RATE_LIMIT');
+    if(usage.units+units>500000||project.units+units>100000)throw new Error('INFERENCE_BUDGET_LIMIT');
+    usage.units+=units;usage.calls++;project.units+=units;project.calls++;usage.projects[projectId]=project;this.state.inferenceUsage=usage;
+    return {reservedUnits:units,projectRemainingUnits:100000-project.units};
   }
   pinMemory(projectId:string,id:string,pinned:boolean) {
     this.requireProject(projectId);const memory=this.state.memories.find(m=>m.id===id&&m.status==='active'&&(m.scope.type==='global'||m.scope.projectId===projectId));

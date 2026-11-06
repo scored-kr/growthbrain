@@ -65,7 +65,7 @@ test('handoff replacement, expiry, retirement and small budgets never resurrect 
 });
 
 test('state v6 migration has no handoffs, rejects undeclared fields; invalid restored handoff graph fails closed',()=>{
- const {engine,project,other}=fixture();const {handoffs,...v6}=engine.snapshot();v6.version=6;
+ const {engine,project,other}=fixture();const {handoffs,inferenceUsage,...v6}=engine.snapshot();v6.version=6;
  assert.deepEqual(new MemoryEngine(v6).snapshot().handoffs,[]);
  assert.throws(()=>new MemoryEngine({...v6,handoffs:[]}));
  const first=engine.proposeHandoff(handoff(project.id));engine.reviewHandoff(project.id,first.id,'approve');

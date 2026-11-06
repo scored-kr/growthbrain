@@ -5,6 +5,7 @@ import { readFile, realpath } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
 import { VaultSession } from './vault.js';
 import { startBroker } from './broker.js';
+import {LocalInference} from './local-inference.js';
 import { startWebMcp } from './web-mcp.js';
 
 // This separate, user-operated terminal is the only unlock/review surface.
@@ -40,11 +41,12 @@ async function hidden(question: string): Promise<string> {
 let vault: VaultSession | undefined;
 let broker: Awaited<ReturnType<typeof startBroker>> | undefined;
 let web:Awaited<ReturnType<typeof startWebMcp>>|undefined;
+let inference:LocalInference|undefined;
 let input: ReturnType<typeof createInterface> | undefined;
 let closePromise: Promise<void> | undefined;
 function close() {
   if (closePromise) return closePromise;
-  input?.close();
+  input?.close();inference?.close();
   // Mark the vault closed to new reads/writes synchronously, then drain accepted writes
   // and disconnect peers. Always finish both cleanups, including on an error/signal.
   closePromise = Promise.allSettled([vault?.close(), broker?.close(),web?.close()]).then(results => {
@@ -81,15 +83,20 @@ try {
   console.log('Selected memories will be readable by the connected AI service. Other local programs running as your OS user can access this unlocked socket. Closing this terminal locks the vault.');
   const consent = await input.question('Type CONNECT to enable the local MCP connection, or press Enter to close: ');
   if (consent !== 'CONNECT') { await close(); process.exit(0); }
-  broker = await startBroker(vault, directory);
-  console.log('Connected locally. Commands: projects, project, memories, propose, propose-task, candidates, review, correct, retire, handoffs, handoff-propose, handoff-review, handoff-retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, web-start, web-requests, web-approve, web-deny, web-connections, web-revoke, web-audit, web-stop, delete-all, lock');
+  broker = await startBroker(vault, directory,{getInference:()=>inference});
+  console.log('Connected locally. Commands: projects, project, memories, propose, propose-task, candidates, review, correct, retire, analysis-enable, analysis-stop, handoffs, handoff-propose, handoff-review, handoff-retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, web-start, web-requests, web-approve, web-deny, web-connections, web-revoke, web-audit, web-stop, delete-all, lock');
   const end = () => { void close().finally(() => process.exit(0)); };
   process.once('SIGTERM', end); process.once('SIGINT', end);
   while (true) {
     const action = (await input.question('growth-brain> ')).trim();
     if (action === 'lock') break;
     try {
-      if(action==='web-start'){
+      if(action==='analysis-enable'){
+        const config=JSON.parse(await readFile(resolve(await input.question('Local model config path (url/model; see docs/local-inference.md): ')),'utf8'));
+        console.log('Optional analysis sends one candidate and same-scope conflicts to your loopback model. Verify this local service does not relay data to a cloud. Results are unverified advice; approval stays manual.');
+        if(await input.question('Type LOCAL to enable until this terminal closes: ')==='LOCAL'){const next=new LocalInference(config);inference?.close();inference=next;console.log('Local analysis enabled. Use the management review card.');}
+      }else if(action==='analysis-stop'){inference?.close();inference=undefined;console.log('Local analysis disabled. Pending requests cancelled.')}
+      else if(action==='web-start'){
         if(web)throw Error('WEB_ALREADY_RUNNING');
         const config=JSON.parse(await readFile(resolve(await input.question('HTTPS config file path (origin, certificateFile, privateKeyFile; see docs/web-mcp.md): ')),'utf8'));
         console.log('TLS must terminate on this device. Only use a direct connection or TCP passthrough; do not upload TLS/vault keys to a relay. Each OAuth connection needs separate local project approval.');
@@ -186,7 +193,7 @@ try {
           }
           break;
         }
-      } else console.log('Commands: projects, project, memories, propose, propose-task, candidates, review, correct, retire, handoffs, handoff-propose, handoff-review, handoff-retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, web-start, web-requests, web-approve, web-deny, web-connections, web-revoke, web-audit, web-stop, delete-all, lock');
+      } else console.log('Commands: projects, project, memories, propose, propose-task, candidates, review, correct, retire, analysis-enable, analysis-stop, handoffs, handoff-propose, handoff-review, handoff-retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, web-start, web-requests, web-approve, web-deny, web-connections, web-revoke, web-audit, web-stop, delete-all, lock');
     } catch { console.log('Action failed. Check the project/candidate ID, explicit replacement, and field limits. No approval was assumed.'); }
   }
   await close();
