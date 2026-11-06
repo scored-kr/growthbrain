@@ -168,13 +168,14 @@ export class VaultSession {
     // Return a detached view so read operations cannot mutate the durable engine.
     return operation(new MemoryEngine(this.requireOpen().snapshot()));
   }
-  getContext(input:unknown) {
+  assertUnlocked(){if(this.closing)throw new Error('VAULT_LOCKED');this.requireOpen()}
+  getContext(input:unknown,commonOnly=false) {
     if(this.closing)throw new Error('VAULT_LOCKED');
-    return structuredClone(this.requireOpen().getContext(input));
+    return structuredClone(this.requireOpen().getContext(input,commonOnly));
   }
-  search(projectId:string|undefined,query:string,limit=20,requestConditions:unknown={},taskType?:TaskType) {
+  search(projectId:string|undefined,query:string,limit=20,requestConditions:unknown={},taskType?:TaskType,commonOnly=false) {
     if(this.closing)throw new Error('VAULT_LOCKED');
-    return structuredClone(this.requireOpen().search(projectId,query,limit,requestConditions,taskType));
+    return structuredClone(this.requireOpen().search(projectId,query,limit,requestConditions,taskType,commonOnly));
   }
   mutate<T>(operation: (engine: MemoryEngine) => T): Promise<T> {
     if (this.closing) return Promise.reject(new Error('VAULT_LOCKED'));

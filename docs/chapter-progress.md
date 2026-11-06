@@ -318,3 +318,15 @@ Chromium 합성UI/mock Chrome transport에서 양쪽 파일선택/미리보기/�
 기존 UI와 양쪽 가져오기 UI 포함. 현 환경 Chromium의 ExtensionInstallBlocklist=["*"]도 읽기 전용으로
 재확인했다. 정책을 우회하지 않았으며 설치 확장 검증 완료를 주장하지 않는다.
 보드 9ae6ae91-2c02-456e-8050-11fdc97b857b. 최종 원격·새clone SHA는 완료보고와 보드 완료 기록을 따른다.
+
+## 챕터28 / 일반 웹 채팅용 기기 HTTPS·OAuth 읽기 연결
+
+사용자 승인한 대기 작업 전체 구현의 첫 단위. [기기 웹 MCP](web-mcp.md)에 공통 MCP factory와
+호출 지침, HTTPS Streamable HTTP, OAuth DCR/S256 PKCE/회전 refresh, 로컬 연결 승인·철회,
+공통 전용/프로젝트 하나 권한을 구현했다. TLS/해독/검색은 사용자 기기이며 임의 프록시 신뢰나
+HTTP 잠금해제·승인·후보 쓰기는 없다. 기존 stdio/확장 관리 경로는 유지한다.
+합성 실제 TLS/OAuth/MCP와 공격·범위·잠금 검사를 수행한다. 내부 상태v6/envelope1/2 유지.
+실제 양쪽 로그인 웹 AI의 호출·결과물은 별도이며 부모 작업 ead9b252… 전체 done으로 처리하지 않는다.
+
+챕터28 전체 `npm run test:local` 통과: Node85/85, 스킬17/101, 설치·해제·PTY·복구·Chromium 합성 UI.
+실제 HTTPS/OAuth/MCP 검사는 합성 자료이며 로그인한 웹 AI 호출 성공과 구분한다.

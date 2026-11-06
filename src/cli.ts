@@ -5,6 +5,7 @@ import { readFile, realpath } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
 import { VaultSession } from './vault.js';
 import { startBroker } from './broker.js';
+import { startWebMcp } from './web-mcp.js';
 
 // This separate, user-operated terminal is the only unlock/review surface.
 // No --password option, environment secret, MCP approval tool, or HTTP unlock endpoint.
@@ -38,6 +39,7 @@ async function hidden(question: string): Promise<string> {
 }
 let vault: VaultSession | undefined;
 let broker: Awaited<ReturnType<typeof startBroker>> | undefined;
+let web:Awaited<ReturnType<typeof startWebMcp>>|undefined;
 let input: ReturnType<typeof createInterface> | undefined;
 let closePromise: Promise<void> | undefined;
 function close() {
@@ -45,7 +47,7 @@ function close() {
   input?.close();
   // Mark the vault closed to new reads/writes synchronously, then drain accepted writes
   // and disconnect peers. Always finish both cleanups, including on an error/signal.
-  closePromise = Promise.allSettled([vault?.close(), broker?.close()]).then(results => {
+  closePromise = Promise.allSettled([vault?.close(), broker?.close(),web?.close()]).then(results => {
     const failed = results.find(result => result.status === 'rejected');
     if (failed?.status === 'rejected') throw failed.reason;
   });
@@ -80,14 +82,33 @@ try {
   const consent = await input.question('Type CONNECT to enable the local MCP connection, or press Enter to close: ');
   if (consent !== 'CONNECT') { await close(); process.exit(0); }
   broker = await startBroker(vault, directory);
-  console.log('Connected locally. Commands: projects, project, memories, propose, propose-task, candidates, review, correct, retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, delete-all, lock');
+  console.log('Connected locally. Commands: projects, project, memories, propose, propose-task, candidates, review, correct, retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, web-start, web-requests, web-approve, web-deny, web-connections, web-revoke, web-audit, web-stop, delete-all, lock');
   const end = () => { void close().finally(() => process.exit(0)); };
   process.once('SIGTERM', end); process.once('SIGINT', end);
   while (true) {
     const action = (await input.question('growth-brain> ')).trim();
     if (action === 'lock') break;
     try {
-      if (action === 'projects') console.log(JSON.stringify(vault.read(e => e.snapshot().projects), null, 2));
+      if(action==='web-start'){
+        if(web)throw Error('WEB_ALREADY_RUNNING');
+        const config=JSON.parse(await readFile(resolve(await input.question('HTTPS config file path (origin, certificateFile, privateKeyFile; see docs/web-mcp.md): ')),'utf8'));
+        console.log('TLS must terminate on this device. Only use a direct connection or TCP passthrough; do not upload TLS/vault keys to a relay. Each OAuth connection needs separate local project approval.');
+        if(await input.question('Type WEB to enable this HTTPS listener, or Enter to cancel: ')==='WEB'){web=await startWebMcp(vault,config);console.log(`Device MCP listening: ${web.url}`)}
+      }else if(action==='web-requests')console.log(JSON.stringify(web?.auth.requests()??[],null,2));
+      else if(action==='web-connections')console.log(JSON.stringify(web?.auth.connections()??[],null,2));
+      else if(action==='web-audit')console.log(JSON.stringify(web?.audit()??[],null,2));
+      else if(action==='web-approve'||action==='web-deny'){
+        if(!web)throw Error('WEB_NOT_RUNNING');
+        const id=await input.question('Connection request UUID: '),request=web.auth.requests().find(r=>r.id===id);
+        if(!request)throw Error('CONNECTION_REQUEST_NOT_FOUND');
+        console.log(JSON.stringify(request,null,2));console.log('Client name is unverified. Check the exact callback and the request number shown in your browser.');
+        if(action==='web-deny')web.auth.deny(id);
+        else{const project=await input.question('Allow common preferences only: COMMON, or one selected project UUID: ');
+          if(await input.question('Selected context is visible to the AI. Read-only access expires within 24 hours. Type ALLOW: ')==='ALLOW')console.log(web.auth.approve(id,project==='COMMON'?null:project));}
+      }else if(action==='web-revoke'){
+        const id=await input.question('Connection UUID to revoke: ');if(await input.question('Type REVOKE: ')==='REVOKE')web?.auth.revoke(id);
+      }else if(action==='web-stop'){await web?.close();web=undefined;console.log('Web connections closed and credentials revoked.')}
+      else if (action === 'projects') console.log(JSON.stringify(vault.read(e => e.snapshot().projects), null, 2));
       else if (action === 'memories') console.log(JSON.stringify(vault.read(e => e.snapshot().memories), null, 2));
       else if (action === 'project') {
         const name = await input.question('Project name: ');
@@ -143,7 +164,7 @@ try {
       } else if (action === 'delete-all') {
         if (await input.question('Deletes this vault and its managed migration backups. Your exported backups, recovery files, remote account data and AI-held context remain. Type DELETE to confirm: ') === 'DELETE') {
           try {
-            await broker?.close(); broker = undefined; await vault.deleteAll();
+            await web?.close();web=undefined;await broker?.close(); broker = undefined; await vault.deleteAll();
             console.log('Local vault and managed migration backups deleted. Exported backups, recovery files, remote account data and AI-held context remain.');
           } catch {
             console.error('Local deletion incomplete. Session locked; remaining files were not declared deleted. Check the private vault directory and managed backup ownership/permissions before retrying.');
@@ -151,7 +172,7 @@ try {
           }
           break;
         }
-      } else console.log('Commands: projects, project, memories, propose, propose-task, candidates, review, correct, retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, delete-all, lock');
+      } else console.log('Commands: projects, project, memories, propose, propose-task, candidates, review, correct, retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, web-start, web-requests, web-approve, web-deny, web-connections, web-revoke, web-audit, web-stop, delete-all, lock');
     } catch { console.log('Action failed. Check the project/candidate ID, explicit replacement, and field limits. No approval was assumed.'); }
   }
   await close();

@@ -48,6 +48,10 @@ npm run vault -- restore /absolute/new-vault-directory /absolute/private-directo
 
 ## MCP 연결
 
+일반 웹 채팅용 사용자 기기 HTTPS 연결은 [웹 MCP 안내](web-mcp.md)를 따른다. 열린 로컬 터미널의
+`web-start`, `web-requests`, `web-approve`, `web-deny`, `web-connections`, `web-revoke`, `web-audit`,
+`web-stop`으로 관리한다. 계정 비밀번호/복구 키를 AI나 HTTP로 전달하지 않는다.
+
 Codex/Claude Code 자동 대화 수집은 [에이전트 훅 설치·동의](agent-capture.md)를 따른다.
 터미널 `agent-bind`, `agent-stop`, `agent-status`로 정확한 작업 폴더/프로젝트의 동의를 관리한다.
 

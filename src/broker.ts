@@ -29,8 +29,10 @@ const safeErrors = new Set(['PROJECT_NOT_FOUND','MEMORY_LIMIT','INVALID_SUPERSES
 export const safeError = (e: unknown) => e instanceof Error && safeErrors.has(e.message) ? e.message : 'REQUEST_FAILED';
 for (const code of ['INVALID_REQUEST', 'INVALID_RESPONSE', 'REQUEST_TOO_LARGE', 'RESPONSE_TOO_LARGE']) safeErrors.add(code);
 safeErrors.add('IMPORT_PROJECT_MISMATCH');
+safeErrors.add('PROJECT_ACCESS_DENIED');
 
 export function errorNextAction(code: string): string {
+  if(code==='PROJECT_ACCESS_DENIED')return 'This connection is restricted to the locally approved project or common preferences. Ask the user to review its scope in the local terminal; do not try other project IDs.';
   if (code === 'REQUEST_TOO_LARGE' || code === 'REQUEST_CONDITION_LIMIT') return 'Reduce the number or length of explicit request conditions and retry. Do not split a write into automatic duplicate proposals.';
   if (code === 'RESPONSE_TOO_LARGE') return 'Request fewer records or a narrower query. Do not repeat a write automatically; inspect its status in the local terminal.';
   if (code === 'PROJECT_NOT_FOUND') return 'Ask the user to select an existing project in the local Growth Brain terminal. Do not guess a different project.';
