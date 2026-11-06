@@ -82,7 +82,7 @@ try {
   const consent = await input.question('Type CONNECT to enable the local MCP connection, or press Enter to close: ');
   if (consent !== 'CONNECT') { await close(); process.exit(0); }
   broker = await startBroker(vault, directory);
-  console.log('Connected locally. Commands: projects, project, memories, propose, propose-task, candidates, review, correct, retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, web-start, web-requests, web-approve, web-deny, web-connections, web-revoke, web-audit, web-stop, delete-all, lock');
+  console.log('Connected locally. Commands: projects, project, memories, propose, propose-task, candidates, review, correct, retire, handoffs, handoff-propose, handoff-review, handoff-retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, web-start, web-requests, web-approve, web-deny, web-connections, web-revoke, web-audit, web-stop, delete-all, lock');
   const end = () => { void close().finally(() => process.exit(0)); };
   process.once('SIGTERM', end); process.once('SIGINT', end);
   while (true) {
@@ -144,6 +144,20 @@ try {
           const reason = await input.question('Retirement reason: ');
           if (await input.question('History remains; common defaults may apply. Type RETIRE to stop using this memory: ') === 'RETIRE') console.log(await vault.mutate(e=>e.retireMemory(projectId,id,reason)));
         }
+      } else if (action === 'handoffs') {
+        const projectId=await input.question('Project UUID: ');console.log(JSON.stringify(vault.read(e=>e.listHandoffs(projectId)),null,2));
+      } else if (action === 'handoff-propose') {
+        const projectId=await input.question('Project UUID: '),goal=await input.question('Current goal: ');
+        const claim=await input.question('Completed claim, or Enter: '),evidence=claim?await input.question('Evidence to inspect (not automatically verified): '):'';
+        const blocker=await input.question('Blocker, or Enter: '),next=await input.question('Next action: '),prior=await input.question('Current handoff UUID to replace, or Enter: ');
+        const days=Number(await input.question('Valid for days (1–30): '));if(!Number.isInteger(days)||days<1||days>30)throw new Error('INVALID_HANDOFF_TIME');
+        if(await input.question('Type SAVE to create a review candidate: ')==='SAVE')console.log(await vault.mutate(e=>e.proposeHandoff({projectId,goal,completed:claim?[{claim,evidence}]:[],blockers:blocker?[blocker]:[],nextActions:[next],observedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+days*86400000).toISOString(),source:{kind:'user',reference:'local:handoff',excerpt:goal},...(prior?{supersedesId:prior}:{})})));
+      } else if(action==='handoff-review'||action==='handoff-retire') {
+        const projectId=await input.question('Project UUID: '),id=await input.question('Handoff UUID: ');
+        const record=vault.read(e=>e.snapshot().handoffs.find(h=>h.projectId===projectId&&h.id===id));if(!record)throw new Error('CANDIDATE_NOT_FOUND');
+        console.log(JSON.stringify(record,null,2));console.log('Inspect completion evidence yourself. Approval records your review, not independent verification.');
+        if(action==='handoff-retire'){if(await input.question('Type RETIRE: ')==='RETIRE')console.log(await vault.mutate(e=>e.retireHandoff(projectId,id)));}
+        else {const choice=await input.question('Type APPROVE or REJECT: ');if(choice==='APPROVE'||choice==='REJECT')console.log(await vault.mutate(e=>e.reviewHandoff(projectId,id,choice==='APPROVE'?'approve':'reject')));}
       } else if (action === 'routes') {
         console.log(JSON.stringify(vault.read(e=>e.snapshot().projectTriggers),null,2));
       } else if (action === 'route-set' || action === 'route-clear') {
@@ -172,7 +186,7 @@ try {
           }
           break;
         }
-      } else console.log('Commands: projects, project, memories, propose, propose-task, candidates, review, correct, retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, web-start, web-requests, web-approve, web-deny, web-connections, web-revoke, web-audit, web-stop, delete-all, lock');
+      } else console.log('Commands: projects, project, memories, propose, propose-task, candidates, review, correct, retire, handoffs, handoff-propose, handoff-review, handoff-retire, agent-bind, agent-stop, agent-status, route-set, route-clear, routes, backup, web-start, web-requests, web-approve, web-deny, web-connections, web-revoke, web-audit, web-stop, delete-all, lock');
     } catch { console.log('Action failed. Check the project/candidate ID, explicit replacement, and field limits. No approval was assumed.'); }
   }
   await close();

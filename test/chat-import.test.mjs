@@ -104,17 +104,17 @@ test('v5 migration preserves original ciphertext and imported provenance survive
  const root=await mkdtemp(join(tmpdir(),'gb-import-v6-')),directory=join(root,'vault'),owner=randomUUID(),password=randomBytes(24).toString('base64url');
  const e=MemoryEngine.empty(owner),project=e.addProject('PRIVATE_IMPORT_PROJECT');
  approve(e,proposal({type:'global'},'format','previous condition',{applicability:{taskTypes:['campaign']}}));
- const state=e.snapshot();state.version=5;const salt=randomBytes(16),key=await derive(password,salt),envelope=seal({snapshot:()=>state},key,{version:1,ownerId:owner,salt:salt.toString('base64')});key.fill(0);
+ const state=e.snapshot();state.version=5;delete state.handoffs;const salt=randomBytes(16),key=await derive(password,salt),envelope=seal({snapshot:()=>state},key,{version:1,ownerId:owner,salt:salt.toString('base64')});key.fill(0);
  await mkdir(directory,{mode:0o700});await writeFile(join(directory,'vault.json'),JSON.stringify(envelope),{mode:0o600});let vault,restored;
  try{
   vault=await VaultSession.open(directory,owner,password);
-  const backups=(await readdir(directory)).filter(p=>p.startsWith('pre-state-v6-'));assert.equal(backups.length,1);
+  const backups=(await readdir(directory)).filter(p=>p.startsWith('pre-state-v7-'));assert.equal(backups.length,1);
   assert.deepEqual(JSON.parse(await readFile(join(directory,backups[0]),'utf8')),envelope);
   await vault.mutate(e=>e.importChat(params(project.id)));await vault.exportBackup(join(root,'export.enc'));await vault.close();
   const encrypted=await readFile(join(directory,'vault.json'),'utf8');for(const text of ['PRIVATE_IMPORT_PROJECT','Synthetic general chat','한국어','importSource'])assert.ok(!encrypted.includes(text));
   const old=await decrypt(envelope,owner,password);assert.equal(old.sourceStateVersion,5);old.key.fill(0);
   restored=await VaultSession.restore(join(root,'export.enc'),join(root,'restored'),owner,password);
-  assert.equal(restored.read(e=>e.snapshot().version),6);assert.equal(restored.read(e=>e.snapshot().captures[0].importSource.branchLeafId),'a2');
+  assert.equal(restored.read(e=>e.snapshot().version),7);assert.equal(restored.read(e=>e.snapshot().captures[0].importSource.branchLeafId),'a2');
   assert.equal((await restored.mutate(e=>e.importChat(params(project.id)))).duplicates,4);
   assert.deepEqual(restored.getContext({projectId:project.id}).conditions,[]);
  }finally{await vault?.close();await restored?.close();await rm(root,{recursive:true,force:true});}

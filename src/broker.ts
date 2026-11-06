@@ -4,12 +4,19 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { agentCaptureInputSchema, agentClientSchema, workspaceSchema, captureInputSchema, consentSchema, contextSchema, identifier, proposalSchema, searchSchema } from './model.js';
 import { privateDirectory, type VaultSession } from './vault.js';
-import { chatImportInputSchema } from './model.js';
+import { chatImportInputSchema, handoffProposalSchema } from './model.js';
 
 const requestSchema = z.discriminatedUnion('method', [
   z.object({ method: z.literal('get_context'), params: contextSchema }).strict(),
   z.object({ method: z.literal('search_memory'), params: searchSchema }).strict(),
   z.object({ method: z.literal('propose_memory'), params: proposalSchema }).strict(),
+  z.object({method:z.literal('propose_handoff'),params:handoffProposalSchema}).strict(),
+  z.object({method:z.literal('list_handoffs'),params:z.object({projectId:identifier,offset:z.number().int().min(0).max(1000).default(0)}).strict()}).strict(),
+  z.object({method:z.literal('review_handoff'),params:z.object({projectId:identifier,id:identifier,decision:z.enum(['approve','reject']),supersedesId:identifier.optional()}).strict()}).strict(),
+  z.object({method:z.literal('retire_handoff'),params:z.object({projectId:identifier,id:identifier}).strict()}).strict(),
+  z.object({method:z.literal('pin_memory'),params:z.object({projectId:identifier,id:identifier,pinned:z.boolean()}).strict()}).strict(),
+  z.object({method:z.literal('dashboard'),params:z.object({projectId:identifier}).strict()}).strict(),
+  z.object({method:z.literal('list_captures'),params:z.object({projectId:identifier,offset:z.number().int().min(0).max(5000).default(0)}).strict()}).strict(),
   // Local native-messaging/UI operations; these are never registered as MCP tools.
   z.object({method:z.literal('import_chat'),params:chatImportInputSchema}).strict(),
   z.object({method:z.literal('create_project'),params:z.object({name:z.string().trim().min(1).max(200)}).strict()}).strict(),
@@ -30,6 +37,7 @@ export const safeError = (e: unknown) => e instanceof Error && safeErrors.has(e.
 for (const code of ['INVALID_REQUEST', 'INVALID_RESPONSE', 'REQUEST_TOO_LARGE', 'RESPONSE_TOO_LARGE']) safeErrors.add(code);
 safeErrors.add('IMPORT_PROJECT_MISMATCH');
 safeErrors.add('PROJECT_ACCESS_DENIED');
+for(const code of ['MULTIPLE_SUPERSESSIONS_REQUIRED','HANDOFF_LIMIT','INVALID_HANDOFF_TIME'])safeErrors.add(code);
 
 export function errorNextAction(code: string): string {
   if(code==='PROJECT_ACCESS_DENIED')return 'This connection is restricted to the locally approved project or common preferences. Ask the user to review its scope in the local terminal; do not try other project IDs.';
@@ -72,6 +80,13 @@ export async function startBroker(vault: VaultSession, directory: string) {
         if (method === 'get_context') result = vault.getContext(params);
         else if (method === 'search_memory') result = vault.search(params.projectId, params.query, params.limit, params.requestConditions,params.taskType);
         else if(method==='propose_memory')result = await vault.mutate(e => e.propose(params));
+        else if(method==='propose_handoff')result=await vault.mutate(e=>e.proposeHandoff(params));
+        else if(method==='list_handoffs')result=vault.read(e=>e.listHandoffs(params.projectId,params.offset));
+        else if(method==='review_handoff')result=await vault.mutate(e=>e.reviewHandoff(params.projectId,params.id,params.decision,params.supersedesId));
+        else if(method==='retire_handoff')result=await vault.mutate(e=>e.retireHandoff(params.projectId,params.id));
+        else if(method==='pin_memory')result=await vault.mutate(e=>e.pinMemory(params.projectId,params.id,params.pinned));
+        else if(method==='dashboard')result=vault.read(e=>e.dashboard(params.projectId));
+        else if(method==='list_captures')result=vault.read(e=>e.listCaptures(params.projectId,params.offset));
         else if(method==='list_projects')result=vault.read(e=>({projects:e.snapshot().projects,settings:e.snapshot().captureSettings}));
         else if(method==='configure_capture')result=await vault.mutate(e=>e.configureCapture(params));
         else if(method==='capture')result=await vault.mutate(e=>e.capture(params));

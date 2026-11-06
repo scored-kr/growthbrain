@@ -33,7 +33,7 @@ test('real stdio MCP transport retrieves scoped memory, records candidates, deni
   t.after(async()=>{await client.close();await broker.close().catch(()=>{});await vault.close();await rm(directory,{recursive:true,force:true});});
   await client.connect(transport);
   const tools=(await client.listTools()).tools;
-  assert.deepEqual(tools.map(t=>t.name).sort(),['get_context','propose_memory','search_memory']);
+  assert.deepEqual(tools.map(t=>t.name).sort(),['get_context','propose_handoff','propose_memory','search_memory']);
   for(const tool of tools) { assert.equal(tool.outputSchema?.type,'object');assert.ok(tool.title); }
   assert.equal(tools.find(t=>t.name==='propose_memory').annotations.idempotentHint,false);
   assert.ok(!JSON.stringify(tools).includes('password'));
@@ -73,6 +73,12 @@ test('real stdio MCP transport retrieves scoped memory, records candidates, deni
   assert.equal((await invoke('search_memory',{projectId:project.id,query:'CANDIDATE_ONLY'})).value.matches.length,1);
   const override=await invoke('get_context',{projectId:project.id,requestConditions:{tone:'이번에는 짧게'}});
   assert.equal(override.value.conditions.find(x=>x.key==='tone').value,'이번에는 짧게');
+  const h=await invoke('propose_handoff',{projectId:project.id,goal:'PRIVATE_HANDOFF_GOAL',completed:[{claim:'Draft completed',evidence:'Synthetic review reference'}],blockers:[],nextActions:['Write the next draft using current conditions'],observedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+86400000).toISOString(),source:{kind:'ai',reference:'synthetic:handoff',excerpt:'Claim requires review'}});
+  assert.equal(h.value.status,'candidate');assert.equal((await invoke('get_context',{projectId:project.id})).value.handoff.status,'none');
+  const cannotReview=await client.callTool({name:'review_handoff',arguments:{projectId:project.id,id:h.value.id,decision:'approve'}});assert.equal(cannotReview.isError,true);
+  await vault.mutate(e=>e.reviewHandoff(project.id,h.value.id,'approve'));
+  const recalled=await invoke('get_context',{projectId:project.id});assert.equal(recalled.value.handoff.record.id,h.value.id);assert.equal(recalled.value.handoff.verification,'user_reviewed_claims_not_independently_verified');
+  const encrypted=await readFile(join(directory,'vault.json'),'utf8');assert.ok(!encrypted.includes('PRIVATE_HANDOFF_GOAL'));
   const persisted=await readFile(join(directory,'vault.json'),'utf8');
   const requestConditions={tone:'이번에는 짧게',cta:'이번에는 안내만'};
   for(const query of ['전문적인','친근하게','무료 상담','이번에는','OTHER_PROJECT_SECRET']) {

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { identifier, proposalSchema, scopeSchema, sourceSchema, applicabilitySchema, taskTypeSchema } from './model.js';
+import { identifier, handoffSchema, proposalSchema, scopeSchema, sourceSchema, applicabilitySchema, taskTypeSchema } from './model.js';
 
 const routingSchema = z.object({
   projectId: identifier.nullable(),
@@ -7,10 +7,11 @@ const routingSchema = z.object({
   candidateProjectIds: z.array(identifier).max(1000),
 }).strict();
 const condition = { key: proposalSchema.shape.key, value: proposalSchema.shape.value };
-const stored = { ...condition, memoryId: identifier, source: sourceSchema, reason: proposalSchema.shape.reason, supersedesId: identifier.optional(),applicability:applicabilitySchema.optional() };
+const stored = { ...condition, memoryId: identifier, source: sourceSchema, reason: proposalSchema.shape.reason, pinned:z.boolean().optional(), supersedesId: identifier.optional(),applicability:applicabilitySchema.optional() };
 const taskSelection={taskType:taskTypeSchema.nullable(),taskExcludedCount:z.number().int().nonnegative()};
 export const contextOutputSchema = z.object({
   ...taskSelection,
+  handoff:z.discriminatedUnion('status',[z.object({status:z.enum(['none','stale','omitted'])}).strict(),z.object({status:z.literal('current'),verification:z.literal('user_reviewed_claims_not_independently_verified'),record:handoffSchema}).strict()]),
   projectId: identifier.nullable(), routing: routingSchema,
   searchedScopes: z.array(z.string()).min(1).max(2),
   conditions: z.array(z.discriminatedUnion('origin', [

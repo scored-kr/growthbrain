@@ -123,3 +123,5 @@ AI가 조립한 현재 요청이나 기억의 의미를 암호화가 검증하�
 실제 Codex/Claude가 모델 응답에 기억을 적용하는 검증은 별도이며 프로토콜 통과로 대체하지 않는다.
 
 일반 채팅의 기존 파일은 [ChatGPT·Claude 가져오기 화면](chat-history-import.md)에서 처리한다. 별도 동의와 후보 검토가 필요하며 사이트 수집/MCP 승인 기능과 구분한다.
+
+프로젝트 진행 상태는 [handoff.md](handoff.md)의 `handoff-propose` → 로컬 검토 → `get_context.handoff`로 전달합니다. 내부 상태는 v7이며 이전 금고의 암호문 마이그레이션 백업을 보존합니다.
