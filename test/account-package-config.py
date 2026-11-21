@@ -54,7 +54,11 @@ class Config(unittest.TestCase):
         isolation = {**base, "kind": "growthbrain-sync-isolation-review-v1",
                      "runEvidenceSha256": "d"*64, "catalogReportSha256": hashlib.sha256(catalog.read_bytes()).hexdigest(),
                      "checks": {k: True for k in packager.CHECKS}}
-        for changed in [{"contractSha256": "0"*64}, {"projectRef": "other"}, {"checks": {"verifiedDistinctAccounts": True}}]:
+        evidence = self.base / "run-evidence.json"
+        evidence.write_text(json.dumps({"projectRef": packager.PROJECT, "contract": packager.CONTRACT,
+                             "passed": True, "cleanupConfirmed": True, "checks": isolation["checks"]}))
+        isolation["runEvidenceSha256"] = hashlib.sha256(evidence.read_bytes()).hexdigest()
+        for changed in [{"runEvidenceSha256": "0"*64}, {"contractSha256": "0"*64}, {"projectRef": "other"}, {"checks": {"verifiedDistinctAccounts": True}}]:
             isolation_path.write_text(json.dumps({**isolation, **changed}))
             with self.assertRaises(ValueError):
                 packager.package(self.dist, self.env)

@@ -19,7 +19,9 @@ test('user archives omit new internal files and retain product source, build inp
   const repo = join(root, 'repo');
   execFileSync('git', ['clone', '--quiet', '--local', '--no-hardlinks', resolve('.'), repo]);
   const run = (command, ...args) => execFileSync(command, args, {cwd: repo, encoding: 'utf8'});
-  for (const name of ['package-release.py', 'release_files.py', 'build-windows-installer.py']) {
+  await mkdir(join(repo, 'scripts/proposed'), {recursive: true});
+  for (const name of ['package-release.py', 'release_files.py', 'build-windows-installer.py',
+    'package-account-config.py', 'proposed/account-sync-v1.sql', 'proposed/account-sync-catalog.sha256']) {
     await cp(resolve('scripts', name), join(repo, 'scripts', name));
   }
   await writeFile(join(repo, 'docs/private-revenue-targets.json'), '{"internal":true}');
@@ -50,7 +52,8 @@ test('user archives omit new internal files and retain product source, build inp
     ['docs/local-inference.md', 'docs/web-mcp.md', 'docs/windows-test-guide.md']);
   assert.ok(!files.some(p => /^(vendor|\.agents|\.github|test)\//.test(p)));
   for (const path of ['package-lock.json', 'src/engine.ts', 'scripts/build-browser-modules.mjs',
-    'scripts/build-windows-installer.py', 'scripts/release_files.py', 'windows/native/com.growthbrain.local.json',
+    'scripts/build-windows-installer.py', 'scripts/release_files.py', 'scripts/package-account-config.py',
+    'scripts/proposed/account-sync-v1.sql', 'scripts/proposed/account-sync-catalog.sha256', 'windows/native/com.growthbrain.local.json',
     'windows/setup/app.manifest', 'integrations/codex/growth-brain/SKILL.md', 'integrations/windows-route/NOTICE']) {
     assert.ok(files.includes(path), 'Missing product input: ' + path);
   }

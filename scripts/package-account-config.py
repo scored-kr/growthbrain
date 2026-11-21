@@ -36,6 +36,12 @@ def qualify(catalog_path, isolation_path):
             or catalog.get("applicationRowsRead") is not False):
         raise ValueError("Catalog qualification does not match this build")
     isolation, isolation_hash = read_evidence(isolation_path)
+    run, run_hash = read_evidence(isolation_path.with_name("run-evidence.json"))
+    if (run.get("projectRef") != PROJECT or run.get("contract") != CONTRACT
+            or run.get("passed") is not True or run.get("cleanupConfirmed") is not True
+            or run.get("checks") != isolation.get("checks")
+            or run_hash != isolation.get("runEvidenceSha256")):
+        raise ValueError("Isolation runner evidence does not match")
     if (isolation.get("kind") != "growthbrain-sync-isolation-review-v1"
             or not all(isolation.get(k) == v for k, v in base.items())
             or isolation.get("catalogReportSha256") != catalog_report_hash
