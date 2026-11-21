@@ -50,3 +50,36 @@ default_transaction_read_only=on과 REPEATABLE READ READ ONLY 트랜잭션을 �
   사용자 행 비노출, READ ONLY 상태에서 INSERT/DROP 거부·기존 데이터 보존.
 - PGlite0.5.15는 검증 전용 devDependency이며 제품의 데이터베이스나 Supabase 연결을 대체하지 않는다.
   실제 psql/libpq를 통한 Supabase TLS·원격 스키마·두 사용자 RLS 시험은 아직 수행하지 못했다.
+
+## 회원 암호문 동기화 RPC 확인
+
+`scripts/proposed/account-sync-v1.sql`은 폐기 가능한 PostgreSQL에서 검증한 후보 계약이다.
+기존 프로젝트의 테이블명·컬럼·RLS를 이 파일에서 추론하지 않는다. 기존 카탈로그 검토와
+별도로 승인된 스키마 변경이 끝난 환경에서 다음 읽기 전용 검사를 사용할 수 있다.
+
+```sh
+python3 scripts/qualify-sync-catalog.py
+```
+
+검사기는 기존 점검기와 같은 안전한 `GROWTH_BRAIN_SUPABASE_DB_URL` 바인딩과 TLS
+검증을 사용한다. 현재 역할·권한, RLS 정책, 제약·트리거, RPC 본문과 실행 권한을
+메타데이터로 읽는다. 검토한 후보와 카탈로그 지문이 일치하면 `catalogVerified=true`와
+두 SHA-256을 출력한다. 누락·불일치·검사 실패는 종료 코드 1이다. PostgreSQL 버전
+차이로 DDL 표현이 변해도 지문이 달라질 수 있으므로 차이를 검토한 뒤 판단한다.
+
+릴리스 담당자는 기존 프로젝트의 다른 API나 정책이 같은 데이터를 노출하는지도
+검토해야 한다. 별도 승인을 받은 합성 계정 두 개로 인증·격리, 같은 판본에 대한 동시 쓰기,
+저장 한도 거부, 삭제 뒤 오래된 단말의 재업로드 거부를 확인한다. 패키징 도구는 이 실측의
+운영자 확인 보고서와 위 카탈로그 보고서를 함께 검사한다. 필드명과 해시 조건은
+`scripts/package-account-config.py`에 있다. 보고서에는 토큰·비밀번호·암호문 본문을 넣지 않는다.
+
+후보 계약은 한 계정의 최신 암호화 스냅샷 한 개를 보관한다. 서버가 실제로 받은
+암호화 JSON의 바이트 수로 50 MiB 기본 한도를 계산한다. 앱의 스냅샷 본문에는
+별도의 12 MiB 상한이 있다. 계정별 저장 한도는 서버 담당자만 설정할 수 있다.
+삭제 요청은 해당 판본을 확인한 뒤 암호문 행을 삭제하고, 같은 트랜잭션에서 소유자 ID와
+새 판본 ID만 남긴다. 오프라인 단말은 예전 판본으로 쓸 수 없다. Supabase 관리 백업,
+다른 앱의 데이터, 다른 기기의 로컬 사본과 이미 AI에 전달된 응답은 이 RPC의 삭제 범위 밖이다.
+
+`node --test test/sync-remote.test.mjs`는 빌드 후 폐기 가능한 PGlite에 실제 후보 SQL을
+적용해 역할별 접근, 충돌, 저장 한도, 삭제, 읽기 전용 지문 검사를 실행한다. 이 작업 환경의
+기존 프로젝트 점검과 RPC 점검은 모두 `MISSING_SAFE_DB_BINDING`으로 종료했다.
