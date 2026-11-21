@@ -56,6 +56,7 @@ def make_payload(tmp, archive):
     app.mkdir()
     # Compile directly to a fresh tree. Untracked/stale build files never enter the installer.
     run([ROOT / "node_modules/.bin/tsc", "--outDir", app / "dist"], ROOT)
+    run(["python3", ROOT / "scripts/package-account-config.py", app / "dist"], ROOT)
     for name in ["package.json", "package-lock.json"]:
         shutil.copy2(ROOT / name, app / name)
     run(["npm", "ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], app)
