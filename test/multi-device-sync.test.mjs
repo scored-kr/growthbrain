@@ -10,6 +10,7 @@ import { request } from 'node:https';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { callBroker } from '../dist/broker.js';
 import { privateDirectory } from '../dist/secure-files.js';
 import { accountServer } from './support/synthetic-supabase.mjs';
 
@@ -116,7 +117,7 @@ async function startDeviceWeb(pc) {
   assert.fail('Device HTTPS MCP listener did not become ready');
 }
 
-test('fresh device serves both web MCP clients after source exits; same-device account switch isolates ciphertext and recall',
+test('fresh device serves approved latest memories to both web MCP clients after source exits',
   {timeout:process.platform==='win32'?240000:120000},async t=>{
   // Windows vaults require a private NTFS directory beneath the token's user profile.
   const root=join(process.platform==='win32'?homedir():tmpdir(),'gb-pcs-'+randomUUID());
@@ -136,7 +137,7 @@ test('fresh device serves both web MCP clients after source exits; same-device a
     await pc.run('accountVerify',{email:account.email,code:service.emailCode});
     return pc.run('accountLogin',account);
   }
-  const language='답변은 한국어로', channel='캠페인 채널은 뉴스레터', stale='인쇄 카탈로그', separate='별도 프로젝트 전용 결제 채널';
+  const language='한국어로 답변', channel='뉴스레터 사용', stale='인쇄 카탈로그', separate='별도 프로젝트 전용 결제 채널', unapproved='미승인 라디오 광고';
   const first=await enrol(a,primary);
   assert.equal(first.unlocked,true);
   await a.run('addPreference',{projectId:null,key:'language',value:language});
@@ -149,12 +150,18 @@ test('fresh device serves both web MCP clients after source exits; same-device a
   assert.equal(existing.error,'EXPLICIT_SUPERSESSION_REQUIRED');
   const saved=await a.run('addPreference',{...next,supersedesId:existing.previous.id});
   assert.equal(saved.account.sync,'synced');
+  const candidate=await callBroker(join(root,'pc-a','active','memory.sock'),'propose_memory',{
+    scope:{type:'project',projectId:mainProject.id},kind:'decision',key:'channel',value:unapproved,
+    source:{kind:'ai',reference:'fixture:pending',excerpt:'합성 검토 원문'},reason:'사용자가 검토할 합성 제안',
+  });
+  assert.equal(candidate.status,'candidate');
+  assert.equal((await a.run('accountSync')).account.sync,'synced');
   await a.close(); // A's controller, broker, data key and all sockets are gone before B starts.
   await rm(join(root,'pc-a'),{recursive:true});
   t.diagnostic('Synthetic PC A exited and its local profile was removed before PC B signed in.');
   const stored=JSON.stringify(await service.inspect());
   assert.ok(stored.length>100,'Expected a remote snapshot');
-  for(const marker of [language,channel,stale,separate,mainProject.name,sideProject.name,primary.password]){
+  for(const marker of [language,channel,stale,separate,unapproved,mainProject.name,sideProject.name,primary.password]){
     assert.ok(!stored.includes(marker),'Plaintext reached the remote snapshot');
   }
 
@@ -169,6 +176,9 @@ test('fresh device serves both web MCP clients after source exits; same-device a
   const restored=await b.run('accountLogin',primary);
   assert.equal(restored.account.sync,'synced');
   assert.deepEqual(new Set(restored.projects.map(p=>p.id)),new Set([mainProject.id,sideProject.id]));
+  const restoredReview=await callBroker(join(root,'pc-b','active','memory.sock'),'list_memories',{projectId:mainProject.id,status:'all'});
+  assert.ok(restoredReview.memories.some(m=>m.id===candidate.id && m.value===unapproved && m.status==='candidate'));
+  assert.ok(restoredReview.memories.some(m=>m.id===existing.previous.id && m.value===stale && m.status==='superseded'));
   await startDeviceWeb(b);
   let previousToken;
   for(const provider of Object.keys(callbacks)) {
@@ -179,9 +189,9 @@ test('fresh device serves both web MCP clients after source exits; same-device a
     assert.notEqual(context.isError,true);
     const recalled=JSON.parse(context.content[0].text);
     assert.equal(recalled.projectId,mainProject.id,'OAuth grant must select the project for this unqualified request');
-    assert.deepEqual(new Set(recalled.conditions.map(c=>c.value)),new Set([language,channel]));
+    assert.deepEqual(recalled.conditions.map(c=>[c.origin,c.value]).sort(),[['global',language],['project',channel]]);
     const wire=JSON.stringify(context);
-    for(const marker of [stale,separate,sideProject.name,'desktop:explicit-entry']) {
+    for(const marker of [stale,separate,sideProject.name,unapproved,candidate.id,existing.previous.id,'fixture:pending','desktop:explicit-entry']) {
       assert.ok(!wire.includes(marker), 'Inactive memory, source or approval history escaped the read boundary');
     }
     for(const localField of ['excerpt','reference','supersedesId','reason']) {
@@ -193,7 +203,7 @@ test('fresh device serves both web MCP clients after source exits; same-device a
     assert.ok(connection?.connected, 'Expected an authenticated provider connection');
     assert.deepEqual(current.audit.filter(e=>e.connectionId===connection.id).map(e=>[e.method,e.success]),[['get_context',true]]);
     assert.equal((await mcp.callTool({name:'get_context',arguments:{projectId:sideProject.id}})).isError,true);
-    t.diagnostic(provider+': simulated callback; one authenticated HTTPS MCP get_context without project ID; 답변은 한국어로 / 캠페인 채널은 뉴스레터; cross-project read denied.');
+    t.diagnostic(`${provider}: simulated callback; authenticated HTTPS MCP get_context without project ID returned ${language} / ${channel}; other project, superseded and pending values excluded.`);
   }
   await b.run('accountLogout');
   const isolated=await enrol(b,other);
