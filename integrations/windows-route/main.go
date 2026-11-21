@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -34,6 +35,8 @@ type event struct {
 type command struct {
 	StateDir string `json:"stateDir"`
 	Port     int    `json:"port"`
+	DeviceID string `json:"deviceId"`
+	AuthKey  string `json:"authKey"`
 }
 
 var grantURL = regexp.MustCompile(`^https://login\.tailscale\.com/f/funnel\?node=[a-zA-Z0-9_-]+$`)
@@ -84,6 +87,65 @@ func main() {
 	}
 }
 
+var deviceID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+var deviceKey = regexp.MustCompile(`^tskey-auth-[A-Za-z0-9_-]{12,256}$`)
+
+// Reuse only this installation's existing tsnet identity. An expired identity
+// re-enrolls through the verified account and never offers an operator login.
+func managedServer(ctx context.Context, setup command, commands <-chan command, send func(event)) (*tsnet.Server, string) {
+	if !deviceID.MatchString(setup.DeviceID) {
+		return nil, "ROUTE_UNAVAILABLE"
+	}
+	makeServer := func(key string) *tsnet.Server {
+		quiet := func(string, ...any) {}
+		return &tsnet.Server{Dir: setup.StateDir, Hostname: "gb-" + setup.DeviceID, AuthKey: key, Ephemeral: true, Logf: quiet, UserLogf: quiet}
+	}
+	_, statErr := os.Lstat(filepath.Join(setup.StateDir, "tailscaled.state"))
+	if statErr == nil {
+		existing := makeServer("")
+		lc, err := existing.LocalClient()
+		if err != nil {
+			return nil, "ROUTE_UNAVAILABLE"
+		}
+		poll := time.NewTicker(time.Second)
+		defer poll.Stop()
+		for {
+			st, err := lc.Status(ctx)
+			if err == nil {
+				switch st.BackendState {
+				case "Running":
+					return existing, ""
+				case "NeedsMachineAuth":
+					existing.Close()
+					return nil, "ROUTE_POLICY_BLOCKED"
+				}
+				if st.BackendState == "NeedsLogin" {
+					break
+				}
+			}
+			select {
+			case <-ctx.Done():
+				existing.Close()
+				return nil, "ROUTE_OFFLINE"
+			case <-poll.C:
+			}
+		}
+		existing.Close()
+	} else if !os.IsNotExist(statErr) {
+		return nil, "ROUTE_UNAVAILABLE"
+	}
+	send(event{Type: "enroll"})
+	select {
+	case <-ctx.Done():
+		return nil, "ROUTE_OFFLINE"
+	case grant := <-commands:
+		if !deviceKey.MatchString(grant.AuthKey) || grant.Port != 0 || grant.StateDir != "" || grant.DeviceID != "" {
+			return nil, "ROUTE_ENROLLMENT_UNAVAILABLE"
+		}
+		return makeServer(grant.AuthKey), ""
+	}
+}
+
 func run(ctx context.Context, commands <-chan command, send func(event)) string {
 	if buildfeatures.HasLogTail {
 		return "ROUTE_UNAVAILABLE"
@@ -94,11 +156,21 @@ func run(ctx context.Context, commands <-chan command, send func(event)) string 
 	case <-ctx.Done():
 		return ""
 	}
-	if setup.StateDir == "" || setup.Port != 0 {
+	if setup.StateDir == "" || setup.Port != 0 || setup.AuthKey != "" {
 		return "ROUTE_UNAVAILABLE"
 	}
 	quiet := func(string, ...any) {}
 	srv := &tsnet.Server{Dir: setup.StateDir, Hostname: "growth-brain", Logf: quiet, UserLogf: quiet}
+	managed := setup.DeviceID != ""
+	if managed {
+		enrollCtx, cancelEnroll := context.WithTimeout(ctx, 45*time.Second)
+		var code string
+		srv, code = managedServer(enrollCtx, setup, commands, send)
+		cancelEnroll()
+		if code != "" {
+			return code
+		}
+	}
 	lc, err := srv.LocalClient()
 	if err != nil {
 		return "ROUTE_UNAVAILABLE"
@@ -107,6 +179,9 @@ func run(ctx context.Context, commands <-chan command, send func(event)) string 
 	authCtx, stopAuth := context.WithTimeout(ctx, 8*time.Minute)
 	defer stopAuth()
 	go func() {
+		if managed {
+			return
+		}
 		lastURL := ""
 		timer := time.NewTicker(2 * time.Second)
 		defer timer.Stop()
@@ -135,7 +210,13 @@ func run(ctx context.Context, commands <-chan command, send func(event)) string 
 	allowed := func(s *ipnstate.Status) bool {
 		return s.Self != nil && len(s.CertDomains) > 0 && ipn.CheckFunnelAccess(443, s.Self) == nil
 	}
+	if managed && (st.Self == nil || st.Self.Tags == nil || st.Self.Tags.Len() != 1 || st.Self.Tags.At(0) != "tag:growthbrain-device") {
+		return "ROUTE_POLICY_BLOCKED"
+	}
 	if !allowed(st) {
+		if managed {
+			return "ROUTE_POLICY_BLOCKED"
+		}
 		grantCtx, cancelGrant := context.WithTimeout(ctx, 5*time.Minute)
 		defer cancelGrant()
 		grant, err := lc.QueryFeature(grantCtx, "funnel")
@@ -181,7 +262,7 @@ func run(ctx context.Context, commands <-chan command, send func(event)) string 
 		return ""
 	case bind = <-commands:
 	}
-	if bind.StateDir != "" || bind.Port <= 0 || bind.Port > 65535 {
+	if bind.StateDir != "" || bind.AuthKey != "" || bind.DeviceID != "" || bind.Port <= 0 || bind.Port > 65535 {
 		return "ROUTE_UNAVAILABLE"
 	}
 	ln, err := srv.ListenFunnel("tcp", ":443", tsnet.FunnelOnly())

@@ -118,6 +118,8 @@ test('actual HTTPS OAuth and MCP protect common/project scopes, write boundary, 
   assert.equal((await http('/.well-known/oauth-authorization-server',{headers:{Host:'evil.example'}})).status,403);
   const common=await login(null),commonClient=await mcp(common.access_token);
   assert.match(commonClient.getInstructions(),/Before answering/);
+  assert.match(commonClient.getInstructions(), /omit projectId/);
+  assert.match((await commonClient.listTools()).tools.find(t=>t.name==='get_context').description, /scope approved on the device/);
   assert.deepEqual((await commonClient.listTools()).tools.map(t=>t.name),['get_context','search_memory']);
   for(const name of ['get_context','search_memory']){
    const result=JSON.parse((await commonClient.callTool({name,arguments:{query:'other-trigger language'}})).content[0].text);

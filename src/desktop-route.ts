@@ -6,14 +6,16 @@ import { Readable, Writable } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import { privateDirectory, type VaultSession } from './vault.js';
+import { enrollRouteDevice, routeDeviceId, type RouteAccount } from './route-enrollment.js';
 import { startDesktopWebMcp } from './web-mcp.js';
 
-const routeCodes = z.enum(['ROUTE_UNAVAILABLE','ROUTE_OFFLINE','ROUTE_POLICY_BLOCKED','ROUTE_CERTIFICATE','ROUTE_CANCELLED']);
+const routeCodes = z.enum(['ROUTE_UNAVAILABLE','ROUTE_OFFLINE','ROUTE_POLICY_BLOCKED','ROUTE_CERTIFICATE','ROUTE_CANCELLED','ROUTE_ENROLLMENT_UNAVAILABLE','ROUTE_ENROLLMENT_LIMIT','ROUTE_AUTH_REQUIRED']);
 const eventSchema = z.discriminatedUnion('type', [
   z.object({type:z.literal('error'), code:routeCodes}).strict(),
   z.object({type:z.literal('login'), url:z.string().max(2048)}).strict(),
   z.object({type:z.literal('certificate'), origin:z.string().max(256), cert:z.base64().max(48000), key:z.base64().max(16000)}).strict(),
   z.object({type:z.literal('listening')}).strict(),
+  z.object({type:z.literal('enroll')}).strict(),
 ]);
 type WebServer = Awaited<ReturnType<typeof startDesktopWebMcp>>;
 type RouteProcess = ChildProcessByStdio<Writable,Readable,null>;
@@ -73,11 +75,18 @@ async function* readEvents(stream:Readable) {
   throw Error('ROUTE_OFFLINE');
 }
 
-export async function openDesktopRoute(vault:VaultSession,directory:string,onSignIn?:(url:string)=>void,signal?:AbortSignal) {
+export function openDesktopRoute(vault:VaultSession,directory:string,onSignIn?:(url:string)=>void,signal?:AbortSignal) {
+  return openRoute(vault,directory,onSignIn,signal);
+}
+export function openAccountDesktopRoute(vault:VaultSession,directory:string,account:RouteAccount,signal?:AbortSignal) {
+  return openRoute(vault,directory,undefined,signal,account);
+}
+async function openRoute(vault:VaultSession,directory:string,onSignIn?: (url:string)=>void,signal?:AbortSignal,account?:RouteAccount) {
   vault.assertUnlocked();
   if(signal?.aborted)throw Error('ROUTE_CANCELLED');
-  const stateDir=join(directory,'web-identity');
+  const stateDir=join(directory,account?'managed-web-identity-v1':'web-identity');
   await privateDirectory(stateDir);
+  const deviceId=account?await routeDeviceId(stateDir):undefined;
   const child:RouteProcess=runHelper();
   const life=new AbortController();
   let web:WebServer|undefined;
@@ -114,7 +123,7 @@ export async function openDesktopRoute(vault:VaultSession,directory:string,onSig
   life.signal.addEventListener('abort',()=>signal?.removeEventListener('abort',cancel),{once:true});
   const startupTimer=setTimeout(()=>stop('ROUTE_OFFLINE'),25*60*1000);
   startupTimer.unref();
-  child.stdin.write(JSON.stringify({stateDir})+'\n');
+  child.stdin.write(JSON.stringify({stateDir,deviceId})+'\n');
 
   async function monitor(address:URL,server:WebServer) {
     // DNS propagation at first enrollment can lag the Funnel announcement.
@@ -136,11 +145,22 @@ export async function openDesktopRoute(vault:VaultSession,directory:string,onSig
   }
 
   void (async()=>{
-    let listening=false;
+    let listening=false, enrolled=false;
     for await(const message of readEvents(child.stdout)){
       if(life.signal.aborted)return;
       if(message.type==='error'){stop(message.code);return;}
-      if(message.type==='login'){
+      if(message.type==='enroll'){
+        if(!account||!deviceId||enrolled||web)throw Error();
+        enrolled=true;
+        try{
+          const authKey=await enrollRouteDevice(account,deviceId,life.signal);
+          if(!life.signal.aborted)child.stdin.write(JSON.stringify({authKey})+'\n');
+        }catch(error){
+          stop(error instanceof Error && routeCodes.safeParse(error.message).success?error.message:'ROUTE_ENROLLMENT_UNAVAILABLE');
+          return;
+        }
+      }else if(message.type==='login'){
+        if(account){stop('ROUTE_POLICY_BLOCKED');return;}
         if(!/^https:\/\/login\.tailscale\.com\/(?:a\/[A-Za-z0-9_-]+|f\/funnel\?node=[A-Za-z0-9_-]+)$/.test(message.url))throw Error();
         onSignIn?.(message.url);
       }else if(message.type==='certificate'){
