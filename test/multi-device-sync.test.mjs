@@ -2,14 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fork, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
-import { createHash, randomBytes } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { readFile, rm } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { request } from 'node:https';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { privateDirectory } from '../dist/secure-files.js';
 import { accountServer } from './support/synthetic-supabase.mjs';
 
 const secret=()=>randomBytes(32).toString('base64url');
@@ -117,7 +118,9 @@ async function startDeviceWeb(pc) {
 
 test('fresh device serves both web MCP clients after source exits; same-device account switch isolates ciphertext and recall',
   {timeout:process.platform==='win32'?240000:120000},async t=>{
-  const root=await mkdtemp(join(tmpdir(),'gb-pcs-'));
+  // Windows vaults require a private NTFS directory beneath the token's user profile.
+  const root=join(process.platform==='win32'?homedir():tmpdir(),'gb-pcs-'+randomUUID());
+  await privateDirectory(root,true);
   const service=await accountServer();
   const pcs=[],clients=[];
   t.after(async()=>{
