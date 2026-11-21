@@ -11,6 +11,12 @@
 | Windows 계정 로그인, 선택적 신뢰 기기, 관리형 웹 연결 | 기기 자격은 Windows 사용자 DPAPI로 보관하며 공유·잠금된 기기의 외부 읽기 접근을 차단한다. 웹 읽기 승인은 서비스·프로젝트별이다. 운영자가 준비한 계정별 시험 네트워크가 필요하다. [발급 서비스 준비](managed-route-pilot.md) |
 | PC A 종료 후 B에서 양쪽 MCP 조회 | 독립 프로세스와 서로 다른 프로필, 대역 인증 API, PostgreSQL 및 실제 HTTPS·OAuth·MCP를 사용한다. `get_context`에 사용자의 문장만 보내고 허용된 공통 조건과 프로젝트 결정을 확인한다. 개인 계정의 실제 ChatGPT·Claude 일반 채팅이 차례로 도구를 선택하고 답변을 생성하는 실측은 별도로 기록한다. |
 
+### 검증한 Windows 시험 파일
+
+패키지 소스는 `0d87f9f14082a1aa9ba4b37572ef2e8b05053660`이고 EXE의 SHA-256은 `84c991bdb839ba142422b76e341f0d0ba52bf1c8472935eb8f84b2bd785ee7dd`다. Windows Server 2025에서 설치·업데이트·시작 메뉴·제거, 실제 사용자 DPAPI, 패키지의 두 독립 프로세스에서 계정 복원 및 서비스별 OAuth/MCP 호출을 확인했다. 두 클라이언트가 ‘지난번 정한 조건대로 다음 작업을 진행해줘’만 조회문으로 전달했을 때 각각 ‘답변은 한국어로’와 ‘캠페인 채널은 뉴스레터’를 읽었다. 다른 계정으로 전환한 뒤 이전 토큰은 거부됐다. [설치 ZIP](https://github.com/scored-kr/growthbrain/actions/runs/44893763327/artifacts/14702837605) · [Windows 실행 기록](https://github.com/scored-kr/growthbrain/actions/runs/44893763327/job/136815186607) · [Linux 실행 기록](https://github.com/scored-kr/growthbrain/actions/runs/44893763303)
+
+이 파일은 운영 연결 정보가 없는 시험본이다. 검사 대상은 합성 계정과 기기 프로필이며, 실제 두 PC 및 두 일반 웹 채팅에서의 모델 답변은 아직 측정하지 않았다. 기존 Supabase 스키마 점검은 현재 환경에서 직접 연결 자격을 확인하지 못해 프로젝트 대시보드의 읽기 전용 보고서를 기다린다. 데이터 초기화와 프로덕션 배포는 수행하지 않았다.
+
 ### 기존 Supabase를 확인하는 순서
 
 1. [Growth brain SQL Editor](https://supabase.com/dashboard/project/kcvjsvbwinlhzgmnfsji/sql/new)에서 [대시보드 점검문](../scripts/inspect-supabase-dashboard.sql)을 실행하고 `report` 한 칸을 확인한다. 회원 행·기억·복호화 키를 조회하지 않는다. 결과의 `qualifiedForWrites`는 이 인벤토리 단계에서는 항상 false다.
