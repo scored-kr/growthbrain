@@ -1,0 +1,4 @@
+Growth Brain device route helper
+Tailscale tsnet v1.104.7 — https://github.com/tailscale/tailscale/tree/v1.104.7
+The helper builds with the ts_omit_logtail tag. The installer includes
+THIRD-PARTY-NOTICES.txt with licenses of linked Go modules and the Go runtime.
