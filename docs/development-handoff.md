@@ -22,6 +22,13 @@ Tailscale 계정 승인과 Funnel을 허용하는 네트워크에서 사용할 �
 Linux에서 전체 `test:local` 통과(Node 126 통과, Windows 전용 4건 건너뜀). Windows Server
 2025 러너에서 실제 패키지를 추출하여 앱 UI의 금고 생성·잠금·재시작·열기, native 실행 파일,
 NTFS 접근 거부·잠금 복구를 확인했다. [Windows CI 실행 기록](https://github.com/scored-kr/growthbrain/actions/runs/44886850892).
+최종 패키지 소스 `b149ef1b3a062db0192f3a4c2141d8b3947fde01`에서 Windows Server 2025의
+일반 설치 대화상자 → 시작 메뉴 → 업데이트 → 제거와 금고 보존까지 통과했다. 합성 금고의 복구 파일로
+새 프로필에 복원하고 새 비밀번호로 열었으며 NTFS/native 검사 6개가 모두 통과했다.
+[최종 Windows 검사](https://github.com/scored-kr/growthbrain/actions/runs/44888013210)와
+[최종 Linux 검사](https://github.com/scored-kr/growthbrain/actions/runs/44888013235). 실제 Windows 11
+표준 사용자와 양쪽 웹 AI 개인화는 사용자가 시험하기 전까지 보드에서 완료로 처리하지 않는다.
+
 CI 산출물은 Windows 워크플로가 커밋별 EXE와 체크섬을 보관한다. 프로덕션 배포·공개 릴리스 없음.
 
 ## Windows 일반 사용자 작업 재개 당시 기록 — 2026-11-21
