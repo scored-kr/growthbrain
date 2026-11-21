@@ -135,6 +135,14 @@ export class MemoryEngine {
     }
   }
   snapshot(): State { return structuredClone(this.state); }
+  /** Used inside a serialized vault transaction after authenticating an account snapshot. */
+  applyAccountState(remote: State) {
+    if (remote.ownerId !== this.state.ownerId) throw Error('ACCOUNT_VAULT_MISMATCH');
+    const { captureSettings, agentBindings, captures, agentCaptures, inferenceUsage } = this.state;
+    const next = new MemoryEngine({ ...remote, captureSettings, agentBindings, captures, agentCaptures, inferenceUsage });
+    this.state = next.state;
+    this.indexes = undefined;
+  }
   fork() {const next=new MemoryEngine(this.state);next.indexes=this.indexes;return next;}
   private memoryIndexes(){return this.indexes??=new MemoryIndexes(this.state.memories);}
   configureProjectTriggers(projectId:string,keywords:string[]) {

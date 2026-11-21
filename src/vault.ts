@@ -61,12 +61,55 @@ async function acquireVaultLock(file: string): Promise<() => Promise<void>> {
   }
 }
 
+// The caller holds this vault's process lock. Validate the owned file set before
+// changing anything. Old encrypted generations can be erased without decrypting them.
+async function prepareFileRemoval(directory: string, ownerId: string) {
+  await privateDirectory(directory);
+  const backups = (await readdir(directory)).filter(name => MIGRATION_BACKUP.test(name)).sort().map(name => join(directory, name));
+  // Validate the entire managed set before deleting any file. Historical keys can differ
+  // after recovery rotation, so do not require the current key to decrypt old snapshots.
+  const vaultFile = join(directory, 'vault.json');
+  for (const file of [vaultFile, ...backups]) {
+    const raw = await readPrivateJSON(file, MAX_BYTES);
+    const chunkHead = chunkHeadSchema.safeParse(raw);
+    const envelope = file === vaultFile && chunkHead.success ? chunkHead.data : envelopeSchema.parse(raw);
+    if (envelope.ownerId !== ownerId) throw Error('BACKUP_OWNER_MISMATCH');
+  }
+  const stages = await stagingFiles(directory);
+  const objectsPath = join(directory, 'objects');
+  const objectsExist = await lstat(objectsPath).catch((error:NodeJS.ErrnoException) => {
+    if (error.code !== 'ENOENT') throw error;
+    return undefined;
+  });
+  const objects = objectsExist ? await ownedChunkObjects(objectsPath,ownerId) : [];
+  return async () => {
+    // A failed unlink must never be reported as full erasure.
+    for (const file of objects) await unlink(file);
+    if (objectsExist) await rmdir(objectsPath);
+    for (const file of stages) await unlink(file);
+    for (const backup of backups) await unlink(backup);
+    await unlink(vaultFile);
+  };
+}
+
+export async function prepareClosedVaultDeletion(directory:string, ownerId:string) {
+  identifier.parse(ownerId);
+  await privateDirectory(directory);
+  const release=await acquireVaultLock(join(directory,'vault.lock'));
+  try { return {remove:await prepareFileRemoval(directory,ownerId),release}; }
+  catch(e) { await release();throw e; }
+}
+
 /** A single local process owns the unlocked key. The socket/MCP never receives it. */
 export class VaultSession {
   private engine?: MemoryEngine;
   private key?: Buffer;
   private queue: Promise<unknown> = Promise.resolve();
   private closing = false;
+  private commitNumber = 0;
+  private accessGuard?: () => boolean;
+  setAccessGuard(guard: () => boolean) { this.accessGuard = guard; }
+  get changeCounter() { return this.commitNumber; }
   private failedCommit=false;
   private chunks?:ChunkStore;
   private constructor(private file: string, private header: Header, engine: MemoryEngine, key: Buffer, private releaseLock: () => Promise<void>) {
@@ -177,7 +220,7 @@ export class VaultSession {
     });
     this.queue = run.catch(() => {}); return await run;
   }
-  private requireOpen() { if (this.failedCommit || !this.engine || !this.key) throw new Error('VAULT_LOCKED'); return this.engine; }
+  private requireOpen() { if (this.failedCommit || !this.engine || !this.key || (this.accessGuard && !this.accessGuard())) throw new Error('VAULT_LOCKED'); return this.engine; }
   read<T>(operation: (engine: MemoryEngine) => T) {
     if (this.closing) throw new Error('VAULT_LOCKED');
     // Return a detached view so read operations cannot mutate the durable engine.
@@ -199,7 +242,7 @@ export class VaultSession {
       const next = this.requireOpen().fork();
       const result = operation(next);
       try{if(this.chunks)await this.chunks.commit(next,this.key!,this.header);else await persist(this.file, seal(next, this.key!, this.header));}catch(error){if(error instanceof Error&&error.message==='COMMIT_UNCERTAIN')this.failedCommit=true;throw error;}
-      this.engine = next;
+      this.engine = next; this.commitNumber++;
       return result;
     });
     this.queue = run.catch(() => {});
@@ -234,24 +277,8 @@ export class VaultSession {
     this.closing = true;
     const deleting = this.queue.then(async () => {
       this.requireOpen();
-      const directory = dirname(this.file);
-      await privateDirectory(directory);
-      const backups = (await readdir(directory)).filter(name => MIGRATION_BACKUP.test(name)).sort().map(name => join(directory, name));
-      // Validate the entire managed set before deleting any file. Historical keys can differ
-      // after recovery rotation, so do not require the current key to decrypt old snapshots.
-      for (const file of [this.file, ...backups]) {
-        const raw=await readPrivateJSON(file,MAX_BYTES);const envelope=file===this.file&&this.chunks?chunkHeadSchema.parse(raw):envelopeSchema.parse(raw);
-        if (envelope.ownerId !== this.header.ownerId) throw new Error('BACKUP_OWNER_MISMATCH');
-      }
-      const stages=await stagingFiles(directory),objectsPath=join(directory,'objects');
-      const objectsExist=await lstat(objectsPath).catch((e:NodeJS.ErrnoException)=>{if(e.code!=='ENOENT')throw e;return undefined});
-      const objects=objectsExist?await ownedChunkObjects(objectsPath,this.header.ownerId):[];
-      // Keep the primary vault until all managed backups are removed. A filesystem failure
-      // can still leave a partially deleted set; callers must never report full success then.
-      for(const file of objects)await unlink(file);if(objectsExist)await rmdir(objectsPath);
-      for(const file of stages)await unlink(file);
-      for (const backup of backups) await unlink(backup);
-      await unlink(this.file);
+      const remove=await prepareFileRemoval(dirname(this.file),this.header.ownerId);
+      await remove();
     });
     // Concurrent close/signal waits for this operation before releasing the process lock.
     this.queue = deleting.catch(() => {});

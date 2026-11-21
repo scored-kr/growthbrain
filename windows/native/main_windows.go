@@ -49,7 +49,7 @@ func run() error {
 	cmd.Dir = dir
 	cmd.Stdin, cmd.Stdout = os.Stdin, os.Stdout
 	id := strings.TrimSuffix(strings.TrimPrefix(host.Origins[0], "chrome-extension://"), "/")
-	cmd.Env = append(os.Environ(), "GROWTH_BRAIN_EXTENSION_ID="+id, "GROWTH_BRAIN_SOCKET="+filepath.Join(profile, "GrowthBrain", "vault", "memory.sock"))
+	cmd.Env = append(os.Environ(), "GROWTH_BRAIN_EXTENSION_ID="+id, "GROWTH_BRAIN_SOCKET="+filepath.Join(profile, "GrowthBrain", "active", "memory.sock"))
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	return cmd.Run()
 }

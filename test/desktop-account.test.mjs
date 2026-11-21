@@ -7,18 +7,22 @@ const key = 'sb_publishable_' + 'x'.repeat(32);
 const email = 'person@example.test';
 const password = 'Synthetic-Here-Only-MeF3!';
 
-function fixture() {
+function fixture(factorType) {
   const id = randomUUID();
   let user = { id, aud: 'authenticated', email, role: 'authenticated', email_confirmed_at: new Date().toISOString() };
+  const factorId = randomUUID();
+  const challengeId = randomUUID();
+  if (factorType) user.factors = [{ id:factorId, status:'verified', factor_type:factorType }];
+  let holdRefresh;
   let authPassword;
   let refresh;
   let leaked = false;
   const requests = [];
-  const session = () => {
+  const session = (aal='aal1') => {
     const exp = Math.floor(Date.now() / 1000) + 900;
     const b64 = object => Buffer.from(JSON.stringify(object)).toString('base64url');
     refresh = randomUUID();
-    return { user, access_token: [b64({typ:'JWT',alg:'HS256'}), b64({sub:id,exp,role:'authenticated'}), b64('synthetic')].join('.'),
+    return { user, access_token: [b64({typ:'JWT',alg:'HS256'}), b64({sub:id,exp,role:'authenticated',aal}), b64('synthetic')].join('.'),
       refresh_token: refresh, expires_in: 900, expires_at: exp, token_type: 'bearer' };
   };
   const fetcher = async (url, init) => {
@@ -35,7 +39,15 @@ function fixture() {
       case 'signup': authPassword = body.password; return response({ user });
       case 'token':
         if (url.searchParams.get('grant_type') === 'password' ? body.password !== authPassword : body.refresh_token !== refresh) return deny();
+        if (url.searchParams.get('grant_type') === 'refresh_token' && holdRefresh) {
+          holdRefresh.started.resolve();
+          await holdRefresh.response.promise;
+        }
         return response(session());
+      case 'factors/'+factorId+'/challenge':
+        return response({id:challengeId,type:'totp',expires_at:Math.floor(Date.now()/1000)+60});
+      case 'factors/'+factorId+'/verify':
+        return body.challenge_id === challengeId && body.code === '352164' ? response(session('aal2')) : deny();
       case 'verify': return body.token === '123456' ? response(session()) : deny();
       case 'user':
         if (init.method === 'PUT') authPassword = body.password;
@@ -45,7 +57,7 @@ function fixture() {
       default: assert.fail('Unexpected mock auth request');
     }
   };
-  return { id, fetcher, requests, leaked: () => leaked, proof: () => authPassword, changeUser: () => { user = { ...user, id: randomUUID() }; } };
+  return { id, fetcher, requests, holdRefresh:()=>(holdRefresh={started:Promise.withResolvers(),response:Promise.withResolvers()}), leaked: () => leaked, proof: () => authPassword, changeUser: () => { user = { ...user, id: randomUUID() }; } };
 }
 
 test('same app login on a fresh device yields the same wrapping key; service sees only derived proof', async () => {
@@ -101,4 +113,42 @@ test('unconfigured and privileged key formats fail closed without an auth reques
     assert.equal(app.contractVerified, false);
     await assert.rejects(app.login(email, password), /ACCOUNT_UNCONFIGURED/);
   }
+});
+
+test('verified TOTP requires the provider challenge and AAL2; trusted refresh cannot supply a downgraded session', async () => {
+  const f = fixture('totp'), app = new DesktopAccount(key,f.fetcher);
+  await app.signup(email,password);
+  await assert.rejects(app.login(email,password),/ACCOUNT_MFA_REQUIRED/);
+  await assert.rejects(app.login(email,password,'000000'),/ACCOUNT_MFA_INVALID/);
+  assert.equal(app.identity(),null);
+  const success = await app.login(email,password,'352164');
+  success.wrappingKey.fill(0);
+  const token = await app.exportRefreshToken();
+  app.clear();
+  // The fixture issues a downgraded AAL1 mimic on the refresh path.
+  await assert.rejects(app.restore(token,f.id),/ACCOUNT_MFA_REQUIRED/);
+  assert.equal(app.identity(),null);
+  const phone = fixture('phone'), other = new DesktopAccount(key,phone.fetcher);
+  await other.signup(email,password);
+  await assert.rejects(other.login(email,password,'352164'),/ACCOUNT_MFA_UNSUPPORTED/);
+});
+
+test('simultaneous refreshes keep unexpired access, use the rotated token once, and cannot undo lock', async () => {
+  const f = fixture(), app = new DesktopAccount(key,f.fetcher);
+  await app.signup(email,password);
+  (await app.login(email,password)).wrappingKey.fill(0);
+  const hold = f.holdRefresh();
+  const a=app.refresh(), b=app.refresh(), c=app.requireVerifiedUser();
+  await hold.started.promise;
+  assert.equal(app.identity().userId,f.id);
+  assert.equal(f.requests.filter(path=>path==='token').length,2);
+  hold.response.resolve();
+  for (const identity of await Promise.all([a,b,c])) assert.equal(identity.userId,f.id);
+  const holdAgain = f.holdRefresh();
+  const refreshing = app.refresh();
+  await holdAgain.started.promise;
+  app.clear();
+  holdAgain.response.resolve();
+  await assert.rejects(refreshing,/ACCOUNT_SESSION_CHANGED/);
+  assert.equal(app.identity(),null);
 });

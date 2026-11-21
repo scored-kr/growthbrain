@@ -40,6 +40,7 @@ export class DesktopAccount {
   private verified?: DesktopIdentity;
   private session?: Session;
   private generation = 0;
+  private refreshing?: Promise<DesktopIdentity>;
 
   constructor(readonly publishableKey: string, private fetcher: typeof fetch = fetch, readonly contractVerified = false) {
     this.configured = publishable.test(publishableKey);
@@ -70,12 +71,14 @@ export class DesktopAccount {
 
   clear() {
     ++this.generation;
+    this.refreshing = undefined;
     this.session = undefined;
     this.verified = undefined;
     this.client = undefined;
   }
 
-  private async verify(client: Client, session: Session, expected: {email?: string; userId?: string}) {
+  private async verify(client: Client, session: Session, expected: {email?: string; userId?: string}, totpCode?: string):
+    Promise<{ identity: DesktopIdentity; session: Session }> {
     const { data, error } = await client.getUser(session.access_token);
     rejectAuth(error, 'ACCOUNT_AUTH_FAILED');
     const user = data.user;
@@ -87,7 +90,25 @@ export class DesktopAccount {
     if ((expected.userId && expected.userId !== user.id) || (expected.email && expected.email !== email)) {
       throw Error('ACCOUNT_IDENTITY_MISMATCH');
     }
-    return { userId: user.id, email, expiresAt };
+    const factors = user.factors?.filter(factor => factor.status === 'verified') ?? [];
+    if (factors.length) {
+      const assurance = await client.mfa.getAuthenticatorAssuranceLevel(session.access_token);
+      rejectAuth(assurance.error, 'ACCOUNT_AUTH_FAILED');
+      if (assurance.data?.currentLevel !== 'aal2') {
+        const factor = factors.find(factor => factor.factor_type === 'totp');
+        if (!factor) throw Error('ACCOUNT_MFA_UNSUPPORTED');
+        if (!totpCode) throw Error('ACCOUNT_MFA_REQUIRED');
+        if (!/^[0-9]{6}$/.test(totpCode)) throw Error('ACCOUNT_MFA_INVALID');
+        const challenge = await client.mfa.challengeAndVerify({ factorId: factor.id, code: totpCode });
+        rejectAuth(challenge.error, 'ACCOUNT_MFA_INVALID');
+        const upgraded = await client.getSession();
+        if (upgraded.error || !upgraded.data.session) throw Error('ACCOUNT_MFA_INVALID');
+        // Revalidate the exact new bearer and its account before giving the
+        // controller any local key. Never reuse the original AAL1 session.
+        return this.verify(client, upgraded.data.session, { email, userId:user.id });
+      }
+    }
+    return { identity: { userId: user.id, email, expiresAt }, session };
   }
 
   private remember(generation: number, client: Client, session: Session, verified: DesktopIdentity) {
@@ -98,7 +119,7 @@ export class DesktopAccount {
     return { ...verified };
   }
 
-  async login(email: string, password: string) {
+  async login(email: string, password: string, totpCode?: string) {
     this.clear();
     const generation = this.generation;
     const client = this.createClient();
@@ -107,8 +128,8 @@ export class DesktopAccount {
       const { data, error } = await client.signInWithPassword({ email: keys.email, password: keys.authPassword });
       rejectAuth(error, 'ACCOUNT_AUTH_FAILED');
       if (!data.session) throw Error('ACCOUNT_AUTH_FAILED');
-      const identity = await this.verify(client, data.session, { email: keys.email });
-      this.remember(generation, client, data.session, identity);
+      const {identity, session} = await this.verify(client, data.session, { email: keys.email }, totpCode);
+      this.remember(generation, client, session, identity);
       return { ...identity, wrappingKey: keys.wrappingKey };
     } catch (error) {
       keys.wrappingKey.fill(0);
@@ -144,7 +165,7 @@ export class DesktopAccount {
     rejectAuth(error, 'ACCOUNT_RESET_FAILED');
   }
 
-  async reset(email: string, code: string, newPassword: string) {
+  async reset(email: string, code: string, newPassword: string, totpCode?: string) {
     this.clear();
     const client = this.createClient();
     requireSignupStrength(newPassword);
@@ -153,7 +174,7 @@ export class DesktopAccount {
       const { data, error } = await client.verifyOtp({ email: keys.email, token: emailCode(code), type: 'recovery' });
       rejectAuth(error, 'ACCOUNT_CODE_INVALID');
       if (!data.session) throw Error('ACCOUNT_RESET_FAILED');
-      await this.verify(client, data.session, { email: keys.email });
+      await this.verify(client, data.session, { email: keys.email }, totpCode);
       rejectAuth((await client.updateUser({ password: keys.authPassword })).error, 'ACCOUNT_RESET_FAILED');
     } finally {
       keys.wrappingKey.fill(0);
@@ -163,41 +184,61 @@ export class DesktopAccount {
     }
   }
 
-  async restore(refreshToken: string, expectedUserId: string) {
-    this.clear();
-    if (!refreshToken || !z.string().uuid().safeParse(expectedUserId).success) throw Error('ACCOUNT_AUTH_FAILED');
+  private async renew(refreshToken: string, expectedUserId: string) {
     const generation = this.generation;
     const client = this.createClient();
-    const { data, error } = await client.refreshSession({ refresh_token: refreshToken });
-    rejectAuth(error, 'ACCOUNT_SESSION_EXPIRED');
-    if (!data.session) throw Error('ACCOUNT_SESSION_EXPIRED');
-    const verified = await this.verify(client, data.session, { userId: expectedUserId });
-    return this.remember(generation, client, data.session, verified);
-  }
-
-  async refresh() {
-    const session = this.session, user = this.verified;
-    if (!session || !user) throw Error('ACCOUNT_SESSION_EXPIRED');
-    return this.restore(session.refresh_token, user.userId);
-  }
-
-  async requireVerifiedUser() {
-    const session = this.session, verified = this.verified, client = this.client;
-    if (!session || !verified || !client) throw Error('ACCOUNT_SESSION_EXPIRED');
-    if (verified.expiresAt - Date.now() < 30000) return this.refresh();
-    const generation = this.generation;
     try {
-      const identity = await this.verify(client, session, { userId: verified.userId, email: verified.email });
-      return this.remember(generation, client, session, identity);
+      const { data, error } = await client.refreshSession({ refresh_token: refreshToken });
+      rejectAuth(error, 'ACCOUNT_SESSION_EXPIRED');
+      if (!data.session) throw Error('ACCOUNT_SESSION_EXPIRED');
+      const verified = await this.verify(client, data.session, { userId: expectedUserId });
+      return this.remember(generation, client, verified.session, verified.identity);
     } catch (error) {
       if (this.generation === generation) this.clear();
       throw error;
     }
   }
 
+  async restore(refreshToken: string, expectedUserId: string) {
+    this.clear();
+    if (!refreshToken || !z.string().uuid().safeParse(expectedUserId).success) throw Error('ACCOUNT_AUTH_FAILED');
+    return this.renew(refreshToken, expectedUserId);
+  }
+
+  async refresh() {
+    if (this.refreshing) return this.refreshing;
+    const session = this.session, user = this.verified;
+    if (!session || !user) throw Error('ACCOUNT_SESSION_EXPIRED');
+    const pending = this.renew(session.refresh_token, user.userId);
+    this.refreshing = pending;
+    try { return await pending; }
+    finally { if (this.refreshing === pending) this.refreshing = undefined; }
+  }
+
+  async requireVerifiedUser() {
+    const session = this.session, verified = this.verified, client = this.client;
+    if (!session || !verified || !client) throw Error('ACCOUNT_SESSION_EXPIRED');
+    if (this.refreshing || verified.expiresAt - Date.now() < 30000) return this.refresh();
+    const generation = this.generation;
+    try {
+      const confirmed = await this.verify(client, session, { userId: verified.userId, email: verified.email });
+      if (this.generation !== generation) throw Error('ACCOUNT_SESSION_CHANGED');
+      if (this.refreshing) return this.refreshing;
+      if (this.session !== session) {
+        const current = this.identity();
+        if (!current) throw Error('ACCOUNT_SESSION_EXPIRED');
+        return current;
+      }
+      return this.remember(generation, client, confirmed.session, confirmed.identity);
+    } catch (error) {
+      if (this.generation === generation && this.session === session && !this.refreshing) this.clear();
+      throw error;
+    }
+  }
+
   async accessToken() {
     if (!this.verified || !this.session) throw Error('ACCOUNT_SESSION_EXPIRED');
-    if (this.verified.expiresAt - Date.now() < 30000) await this.refresh();
+    if (this.refreshing || this.verified.expiresAt - Date.now() < 30000) await this.refresh();
     if (!this.session) throw Error('ACCOUNT_SESSION_EXPIRED');
     return this.session.access_token;
   }
