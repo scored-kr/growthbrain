@@ -1,0 +1,48 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {PGlite} from '@electric-sql/pglite';
+
+test('Dashboard inventory runs read-only with absent legacy objects and with protected metadata',async t=>{
+  const db=new PGlite();t.after(()=>db.close());
+  const sql=await readFile(new URL('../scripts/inspect-supabase-dashboard.sql',import.meta.url),'utf8');
+  const inspect=()=>db.transaction(async tx=>{
+    await tx.exec('set transaction read only');
+    const {rows}=await tx.query(sql);
+    assert.equal(rows.length,1);
+    return rows[0].report;
+  });
+  const empty=await inspect();
+  assert.equal(empty.relationCount,0);
+  assert.equal(empty.migration.historyTablePresent,false);
+  assert.equal(empty.migration.versionPresent,null);
+  assert.ok(Object.values(empty.syncV1.rpcSignaturePresent).every(v=>v===false));
+  await db.exec(`create role anon;create role authenticated;create role service_role;
+    create schema auth;create function auth.uid() returns uuid language sql as $$select null::uuid$$;
+    create schema supabase_migrations;create table supabase_migrations.schema_migrations(version text);
+    insert into supabase_migrations.schema_migrations values ('20261102050000');
+    create table public.memories(owner_id uuid not null, body text default 'SECRET_DEFAULT');
+    insert into public.memories(body,owner_id) values ('SECRET_BODY',gen_random_uuid());
+    alter table public.memories enable row level security;
+    create policy owner_read on public.memories for select to authenticated using(owner_id=(select auth.uid()));
+    create policy sensitive on public.memories for update to authenticated using(body='SECRET_POLICY');
+    grant select on public.memories to authenticated;
+    create function public.growthbrain_sync_v1_status() returns text language sql security definer as $$select 'SECRET_FUNCTION'::text$$;
+    revoke all on function public.growthbrain_sync_v1_status() from public;
+    grant execute on function public.growthbrain_sync_v1_status() to authenticated;`);
+  const report=await inspect(), table=report.tables[0];
+  assert.equal(report.migration.historyTablePresent,true);
+  assert.equal(report.migration.versionPresent,null);
+  assert.equal(table.rls,true);
+  assert.ok(table.policies.find(p=>p.name==='owner_read').expression.using.includes('auth.uid()'));
+  assert.equal(table.policies.find(p=>p.name==='sensitive').expression.using,'[review in Dashboard]');
+  assert.deepEqual(table.tablePrivileges.authenticated,['SELECT']);
+  assert.deepEqual(table.tablePrivileges.anon,[]);
+  assert.deepEqual(table.columns[0],['owner_id','uuid',true]);
+  assert.equal(report.syncV1.rpcSignaturePresent.status,true);
+  assert.equal(report.functions[0].securityDefiner,true);
+  assert.equal(report.functions[0].execute.anon,false);
+  assert.equal(report.functions[0].execute.authenticated,true);
+  assert.equal(report.syncV1.qualifiedForWrites,false);
+  assert.ok(!JSON.stringify(report).includes('SECRET_'));
+});
