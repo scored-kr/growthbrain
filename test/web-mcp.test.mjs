@@ -30,8 +30,11 @@ async function authorized(auth,client,projectId=null){
 test('device OAuth binds one-time code to PKCE/client/redirect/resource and requires local approval',async()=>{
  const auth=new DeviceAuthorization(new URL('https://device.example/mcp'),()=>{},()=>{}),client=await registered(auth),other=await registered(auth);
  const a=await authorized(auth,client);
+ assert.equal(auth.connections()[0].connected,false);
  for(const args of [[other,a.code,a.verifier,a.params.redirectUri,auth.resource],[client,a.code,random(),a.params.redirectUri,auth.resource],[client,a.code,a.verifier,'https://evil.example/',auth.resource],[client,a.code,a.verifier,a.params.redirectUri,new URL('https://evil.example/mcp')]])await assert.rejects(()=>auth.exchangeAuthorizationCode(...args));
  const tokens=await auth.exchangeAuthorizationCode(client,a.code,a.verifier,a.params.redirectUri,auth.resource);
+ assert.equal(auth.connections()[0].connected,true);
+ assert.equal(auth.connections()[0].redirectUri,a.params.redirectUri);
  assert.equal((await auth.verifyAccessToken(tokens.access_token)).extra.projectId,null);
  await assert.rejects(()=>auth.exchangeAuthorizationCode(client,a.code,a.verifier,a.params.redirectUri,auth.resource));
  auth.revoke(a.grant.id);await assert.rejects(()=>auth.verifyAccessToken(tokens.access_token));
@@ -116,6 +119,7 @@ test('actual HTTPS OAuth and MCP protect common/project scopes, write boundary, 
   assert.equal((await projectClient.callTool({name:'get_context',arguments:{projectId:other.id}})).isError,true);
   await form('/revoke',{client_id:selected.client.client_id,token:selected.refresh_token});
   assert.equal((await json('/mcp',{}, {Authorization:`Bearer ${selected.access_token}`})).status,401);
+  assert.ok(web.audit().some(e=>e.connectionId===selected.grant.id&&e.method==='get_context'&&e.success));
   const audit=JSON.stringify(web.audit());for(const forbidden of ['PRIVATE','한국어',common.access_token,'current_override'])assert.ok(!audit.includes(forbidden));
   await vault.close();const locked=await json('/mcp',{}, {Authorization:`Bearer ${common.access_token}`});assert.equal(locked.status,401);assert.match(locked.text,/VAULT_LOCKED/);
  }finally{for(const c of clients)await c.close();await web.close();await vault.close();await rm(root,{recursive:true,force:true})}

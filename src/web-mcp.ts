@@ -6,7 +6,7 @@ import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createMemoryMcp } from './mcp-server.js';
-import { DeviceAuthorization } from './web-auth.js';
+import { consentCookieName, DeviceAuthorization } from './web-auth.js';
 import { contextSchema, searchSchema } from './model.js';
 import type { VaultSession } from './vault.js';
 
@@ -27,7 +27,7 @@ export async function startWebMcp(vault:VaultSession,config:WebMcpConfig){
   const auth=new DeviceAuthorization(new URL('/mcp',origin),()=>vault.assertUnlocked(),id=>{vault.getContext({projectId:id})});
   const app=express();app.disable('x-powered-by');app.set('trust proxy',false);
   let closing=false,inFlight=0,windowStart=Date.now(),requests=0;
-  const audit:Array<{at:string;method:string;success:boolean}>=[];
+  const audit:Array<{at:string;method:string;success:boolean;connectionId:string}>=[];
   app.use((req,res,next)=>{
     res.set({'Cache-Control':'no-store','Pragma':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"});
     if(closing){res.status(503).json({error:'CONNECTION_CLOSED'});return}
@@ -42,11 +42,15 @@ export async function startWebMcp(vault:VaultSession,config:WebMcpConfig){
   app.use(mcpAuthRouter({provider:auth,issuerUrl:origin,resourceServerUrl:auth.resource,scopesSupported:['memory:read'],resourceName:'Growth Brain device memory'}));
   app.get('/consent',(req,res)=>{
     try{
-      const cookie=req.headers.cookie?.split(';').map(s=>s.trim()).find(s=>s.startsWith('__Host-gb-consent='))?.slice('__Host-gb-consent='.length)??'';
-      const result=auth.consent(typeof req.query.request==='string'?req.query.request:'',cookie);
-      if(!result.waiting){res.clearCookie('__Host-gb-consent',{secure:true,httpOnly:true,sameSite:'lax',path:'/'});res.redirect(303,result.url);return}
+      const id = typeof req.query.request === 'string' ? req.query.request : '';
+      if (!/^[a-f0-9-]{36}$/.test(id)) throw Error('INVALID_REQUEST');
+      const cookieName = consentCookieName(id);
+      const prefix = cookieName + '=';
+      const cookie = req.headers.cookie?.split(';').map(s => s.trim()).find(s => s.startsWith(prefix))?.slice(prefix.length) ?? '';
+      const result = auth.consent(id, cookie);
+      if(!result.waiting){res.clearCookie(cookieName,{secure:true,httpOnly:true,sameSite:'lax',path:'/'});res.redirect(303,result.url);return}
       // UUID only, no client-provided HTML. Refresh keeps the code out of any script.
-      res.type('html').send(`<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="refresh" content="3"><title>Growth Brain 연결 승인</title><h1>기기에서 연결을 승인하세요</h1><p>Growth Brain 로컬 터미널에서 web-requests로 요청을 확인하고 web-approve로 읽기 범위를 승인하세요.</p><p>요청 번호: ${result.id}</p><p>비밀번호나 복구 키를 이 페이지 또는 AI 대화에 입력하지 마세요. 승인하면 자동으로 원래 서비스로 돌아갑니다.</p></html>`);
+      res.type('html').send(`<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="refresh" content="3"><title>Growth Brain 연결 승인</title><h1>기기에서 연결을 승인하세요</h1><p>Growth Brain 앱에서 아래 요청 번호와 서비스 주소를 확인하고, 허용할 기억 범위를 선택하세요.</p><p>요청 번호: ${result.id}</p><p>비밀번호나 복구 키를 이 페이지 또는 AI 대화에 입력하지 마세요. 승인하면 자동으로 원래 서비스로 돌아갑니다.</p></html>`);
     }catch{res.status(400).json({error:'CONNECTION_REQUEST_UNAVAILABLE'})}
   });
   const bearer=requireBearerAuth({verifier:auth,requiredScopes:['memory:read'],expectedResource:auth.resource,resourceMetadataUrl:new URL('/.well-known/oauth-protected-resource/mcp',origin).href});
@@ -67,7 +71,7 @@ export async function startWebMcp(vault:VaultSession,config:WebMcpConfig){
           const result=vault.search(projectId??undefined,p.query,p.limit,p.requestConditions,p.taskType,projectId===null);success=true;return result;
         }
         throw Error('INVALID_REQUEST');
-      }finally{audit.push({at:new Date().toISOString(),method,success});if(audit.length>200)audit.shift()}
+      }finally{audit.push({at:new Date().toISOString(),method,success,connectionId:String(req.auth!.extra!.grantId)});if(audit.length>200)audit.shift()}
     },true);
     const transport=new StreamableHTTPServerTransport({sessionIdGenerator:undefined,enableJsonResponse:true});
     const cleanup=()=>{void mcp.close().catch(()=>{})};res.once('close',cleanup);

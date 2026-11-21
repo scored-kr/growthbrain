@@ -9,9 +9,10 @@ import { identifier } from './model.js';
 const digest=(s:string)=>createHash('sha256').update(s).digest('base64url');
 const secret=()=>randomBytes(32).toString('base64url');
 const scope='memory:read';
+export const consentCookieName = (id: string) => '__Host-gb-consent-' + id;
 const equals=(a:string,b:string)=>a.length===b.length&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
 type Client=OAuthClientInformationFull;
-type Grant={id:string;clientId:string;projectId:string|null;expires:number};
+type Grant={id:string;clientId:string;projectId:string|null;redirectUri:string;connected:boolean;expires:number};
 type Pending={id:string;clientId:string;params:AuthorizationParams;cookieHash:string;expires:number;grantId?:string;denied?:boolean};
 type Code={clientId:string;params:AuthorizationParams;grantId:string;expires:number};
 type Token={clientId:string;grantId:string;expires:number;used?:boolean};
@@ -59,7 +60,7 @@ export class DeviceAuthorization implements OAuthServerProvider {
     if(this.pending.size>=32)throw new TooManyRequestsError('Too many pending connections');
     const id=randomUUID(),cookie=secret();
     this.pending.set(id,{id,clientId:client.client_id,params,cookieHash:digest(cookie),expires:this.now()+300000});
-    res.cookie('__Host-gb-consent',cookie,{secure:true,httpOnly:true,sameSite:'lax',path:'/',maxAge:300000});
+    res.cookie(consentCookieName(id),cookie,{secure:true,httpOnly:true,sameSite:'lax',path:'/',maxAge:300000});
     res.redirect(303,`/consent?request=${id}`);
   }
   requests(){this.check();this.sweep();return [...this.pending.values()].filter(p=>!p.grantId&&!p.denied).map(p=>({id:p.id,clientName:this.clients.get(p.clientId)?.client_name??'Unnamed client',redirectUri:p.params.redirectUri,expiresAt:new Date(p.expires).toISOString()}))}
@@ -68,11 +69,11 @@ export class DeviceAuthorization implements OAuthServerProvider {
     if(!p||p.grantId||p.denied)throw Error('CONNECTION_REQUEST_NOT_FOUND');
     if(projectId!==null){identifier.parse(projectId);this.requireProject(projectId)}
     if(this.grants.size>=64)throw Error('CONNECTION_LIMIT');
-    const grant:Grant={id:randomUUID(),clientId:p.clientId,projectId,expires:this.now()+86400000};
+    const grant:Grant={id:randomUUID(),clientId:p.clientId,projectId,redirectUri:p.params.redirectUri,connected:false,expires:this.now()+86400000};
     this.grants.set(grant.id,grant);p.grantId=grant.id;return {id:grant.id,projectId,expiresAt:new Date(grant.expires).toISOString()};
   }
   deny(id:string){this.check();const p=this.pending.get(id);if(!p||p.grantId)throw Error('CONNECTION_REQUEST_NOT_FOUND');p.denied=true}
-  connections(){this.check();this.sweep();return [...this.grants.values()].map(g=>({id:g.id,projectId:g.projectId,clientName:this.clients.get(g.clientId)?.client_name??'Unnamed client',expiresAt:new Date(g.expires).toISOString()}))}
+  connections(){this.check();this.sweep();return [...this.grants.values()].map(g=>({id:g.id,projectId:g.projectId,redirectUri:g.redirectUri,connected:g.connected,clientName:this.clients.get(g.clientId)?.client_name??'Unnamed client',expiresAt:new Date(g.expires).toISOString()}))}
   consent(id:string,cookie:string){
     this.check();this.sweep();const p=this.pending.get(id);
     if(!p||!equals(p.cookieHash,digest(cookie)))throw new InvalidRequestError('Connection request expired or browser changed');
@@ -95,7 +96,10 @@ export class DeviceAuthorization implements OAuthServerProvider {
     const value=this.code(client,code);this.validateResource(resource);
     // Also validate here so direct provider callers cannot bypass the SDK's PKCE check.
     if(!verifier||!/^[A-Za-z0-9._~-]{43,128}$/.test(verifier)||!equals(digest(verifier),value.params.codeChallenge)||redirectUri!==value.params.redirectUri)throw new InvalidGrantError('Code binding failed');
-    this.codes.delete(digest(code));return this.issue(value.grantId);
+    const tokens = this.issue(value.grantId);
+    this.codes.delete(digest(code));
+    this.grants.get(value.grantId)!.connected = true;
+    return tokens;
   }
   private issue(grantId:string):OAuthTokens{
     this.sweep();const grant=this.grants.get(grantId);
