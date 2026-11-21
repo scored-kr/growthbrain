@@ -1,6 +1,6 @@
 # Growth Brain
 
-Windows 11 x64 시험 설치 파일의 사용법과 양쪽 웹 채팅 확인 순서는 [Windows 설치·연결 안내](docs/windows-test-guide.md)에 있습니다.
+Windows 시험판의 기본 시작 화면은 계정 로그인입니다. PC A를 종료한 뒤 새 PC B에서 승인한 선호도와 프로젝트를 확인하는 절차, 시험 설치 파일의 연결 준비 상태, ChatGPT·Claude별 합격 조건은 [Windows 두 PC 시험 안내](docs/windows-test-guide.md)에 있습니다.
 
 
 사용자의 공통 선호도와 프로젝트 기억을 AI가 직접 조회하는 제품입니다.

@@ -83,6 +83,21 @@ jobs:
           & (Join-Path $app node.exe) --test test/windows-storage.test.mjs test/windows-native.test.mjs test/windows-trust.test.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Windows storage or native host check failed' }
           ./test/windows-desktop-smoke.ps1 -App (Join-Path $app GrowthBrain.exe)
+      - name: Restore from another account device and call both HTTPS MCP clients
+        shell: pwsh
+        run: |
+          # Keep the packaged runtime dependencies. Install the SQL fixture dependency
+          # under a separate prefix from the repository lock, then add only PGlite.
+          $fixtureDeps = Join-Path $env:RUNNER_TEMP 'GB-fixture-dependencies'
+          $null = New-Item -ItemType Directory -Path $fixtureDeps
+          Copy-Item package.json,package-lock.json -Destination $fixtureDeps
+          npm.cmd ci --prefix $fixtureDeps --ignore-scripts --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'SQL fixture dependency installation failed' }
+          $null = New-Item -ItemType Directory -Path node_modules/@electric-sql
+          Copy-Item -Recurse (Join-Path $fixtureDeps 'node_modules/@electric-sql/pglite') node_modules/@electric-sql/pglite
+          $runtime = Join-Path $env:RUNNER_TEMP 'GB-package-smoke/app/node.exe'
+          & $runtime --test test/multi-device-sync.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Windows multi-device acceptance failed' }
       - name: Exercise the normal Windows setup dialogs and Start menu entry
         shell: pwsh
         run: ./test/windows-setup-dialogs.ps1 -Setup (Resolve-Path build/windows/GrowthBrain-Setup-x64.exe).Path

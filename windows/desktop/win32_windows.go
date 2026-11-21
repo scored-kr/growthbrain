@@ -35,7 +35,10 @@ func messageBox(title, message string, flags uintptr) uintptr {
 	runtime.KeepAlive(q)
 	return r
 }
-func confirm(title, msg string) bool { return messageBox(title, msg, 0x134) == 6 } // YESNO, default No
+func confirm(title, msg string) bool {
+	gen := uiGeneration
+	return messageBox(title, msg, 0x134) == 6 && gen == uiGeneration && sessionAvailable()
+} // YESNO, default No
 func openKnown(target string) bool {
 	verb, path := wide("open"), wide(target)
 	v, _, _ := shell.NewProc("ShellExecuteW").Call(mainWindow, ptr(verb), ptr(path), 0, 0, 1)
@@ -191,7 +194,7 @@ func runApp() {
 	wc := windowClass{Proc: syscall.NewCallback(windowProc), Instance: instance, Cursor: cursor, Brush: 16, Name: class}
 	wc.Size = uint32(unsafe.Sizeof(wc))
 	user.NewProc("RegisterClassExW").Call(uintptr(unsafe.Pointer(&wc)))
-	title := wide("Growth Brain • 내 기기의 금고")
+	title := wide("Growth Brain")
 	mainWindow, _, _ = createWindow.Call(0, ptr(class), ptr(title), 0x00CF0000|0x00200000, 0x80000000, 0, 620, 790, 0, 0, instance, 0)
 	runtime.KeepAlive(class)
 	runtime.KeepAlive(title)
@@ -206,7 +209,8 @@ func runApp() {
 	user.NewProc("SetTimer").Call(mainWindow, 1, 2000, 0)
 	user.NewProc("ShowWindow").Call(mainWindow, 5)
 	user.NewProc("UpdateWindow").Call(mainWindow)
-	dispatch(command{"op": "status"})
+	stopMonitor := startSessionMonitor()
+	defer stopMonitor()
 	var m msg
 	for {
 		r, _, _ := user.NewProc("GetMessageW").Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
@@ -223,6 +227,9 @@ func runApp() {
 }
 func windowProc(h uintptr, m uint32, w, l uintptr) uintptr {
 	switch m {
+	case sessionChanged:
+		applySession()
+		return 0
 	case 0x111: // WM_COMMAND
 		if l != 0 && controls[int(w&65535)] == l {
 			handleAction(int(w&65535), int(w>>16))
@@ -236,7 +243,9 @@ func windowProc(h uintptr, m uint32, w, l uintptr) uintptr {
 	case 0x8001:
 		select {
 		case r := <-responses:
-			finish(r)
+			if r.generation == uiGeneration && sessionAvailable() {
+				finish(r.reply)
+			}
 		default:
 		}
 		return 0

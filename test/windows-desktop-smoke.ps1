@@ -13,6 +13,7 @@ $passed = $false
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 public static class DesktopSmoke {
   [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr parent,int id);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd);
@@ -22,6 +23,23 @@ public static class DesktopSmoke {
   private static extern IntPtr SetText(IntPtr hwnd,uint message,IntPtr w,string text,uint flags,uint timeout,out UIntPtr result);
   [DllImport("user32.dll",CharSet=CharSet.Unicode,EntryPoint="SendMessageTimeoutW")]
   private static extern IntPtr Message(IntPtr hwnd,uint message,IntPtr w,IntPtr l,uint flags,uint timeout,out UIntPtr result);
+  [DllImport("user32.dll",CharSet=CharSet.Unicode,EntryPoint="SendMessageTimeoutW")]
+  private static extern IntPtr Read(IntPtr hwnd,uint message,IntPtr w,StringBuilder text,uint flags,uint timeout,out UIntPtr result);
+  [DllImport("user32.dll",CharSet=CharSet.Unicode)] private static extern IntPtr FindWindowEx(IntPtr parent,IntPtr after,string cls,string caption);
+  [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd,out uint processId);
+  public static string Text(IntPtr hwnd) {
+    var txt=new StringBuilder(4096);UIntPtr result;
+    if(Read(hwnd,13,(IntPtr)txt.Capacity,txt,2,3000,out result)==IntPtr.Zero)throw new Exception("GUI result unavailable");
+    return txt.ToString();
+  }
+  public static void NotifySession(int processId,int state) {
+    IntPtr h=IntPtr.Zero;uint pid;UIntPtr result;
+    while((h=FindWindowEx(IntPtr.Zero,h,"GrowthBrainSessionObserver",null))!=IntPtr.Zero) {
+      GetWindowThreadProcessId(h,out pid);
+      if(pid==processId && Message(h,0x2b1,(IntPtr)state,IntPtr.Zero,2,3000,out result)!=IntPtr.Zero)return;
+    }
+    throw new Exception("Session monitor not found");
+  }
   public static void Enter(IntPtr hwnd,string value) {
     UIntPtr r;
     if(SetText(hwnd,12,IntPtr.Zero,value,2,3000,out r)==IntPtr.Zero || r==UIntPtr.Zero) throw new Exception("GUI input failed");
@@ -72,6 +90,13 @@ function Close-Desktop {
 
 try {
     Start-Desktop
+    $null = Ready-Control 211
+    if (![DesktopSmoke]::IsWindowVisible((Control 201)) -or ![DesktopSmoke]::IsWindowVisible((Control 207))) { throw 'Default launch did not show account login' }
+    if (([DesktopSmoke]::GetWindowLong((Control 203),-16) -band 0x20) -eq 0) { throw 'Account password input is not masked' }
+    foreach ($id in @(103,106,110,114,143,145,149,151)) {
+        if ([DesktopSmoke]::IsWindowVisible((Control $id))) { throw "Technical control $id on default login" }
+    }
+    [DesktopSmoke]::Click((Ready-Control 211))
     $null = Ready-Control 143
     [DesktopSmoke]::Select($window,143,2) # recovery using a backup and recovery file
     $null = Ready-Control 144
@@ -99,10 +124,60 @@ try {
     Close-Desktop
 
     Start-Desktop
+    [DesktopSmoke]::Click((Ready-Control 211))
     [DesktopSmoke]::Enter((Ready-Control 103),$passphrase)
     [DesktopSmoke]::Click((Ready-Control 106))
     $null = Ready-Control 109
     Close-Desktop
+    # Drive the original native GUI against a labelled synthetic child in a
+    # separate staging folder. Leave the packaged controller and real app untouched.
+    $staging = Join-Path $fixture 'presentation-test'
+    $null = New-Item -ItemType Directory -Path (Join-Path $staging 'dist') -Force
+    Copy-Item -LiteralPath $desktop -Destination (Join-Path $staging 'GrowthBrain.exe')
+    Copy-Item -LiteralPath (Join-Path (Split-Path $desktop) 'node.exe') -Destination $staging
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'support/windows-account-ui-controller.cjs') -Destination (Join-Path $staging 'dist/desktop-controller.js')
+    $desktop = Join-Path $staging 'GrowthBrain.exe'
+    Start-Desktop
+    [DesktopSmoke]::Enter((Ready-Control 201),'win-ui@example.invalid')
+    [DesktopSmoke]::Enter((Ready-Control 203),$passphrase)
+    [DesktopSmoke]::Click((Ready-Control 206))
+    [DesktopSmoke]::Click((Ready-Control 207))
+    $null = Wait-For { if ([DesktopSmoke]::Text((Control 218)) -like '*COMMON-FORMAT*') { $true } } 'approved common preferences on login'
+    $beforePid = Get-Content -LiteralPath (Join-Path $staging 'child.pid') -Raw
+    $beforeResume = @(Get-Content -LiteralPath (Join-Path $staging 'test-operations.txt') | Where-Object { $_ -eq 'accountResume' }).Count
+    $second = Start-Process -FilePath $desktop -PassThru
+    if (!$second.WaitForExit(5000)) { $second.Kill(); throw 'Second desktop acquired the same profile' }
+    $afterResume = @(Get-Content -LiteralPath (Join-Path $staging 'test-operations.txt') | Where-Object { $_ -eq 'accountResume' }).Count
+    if ($beforeResume -ne $afterResume -or $beforePid -ne (Get-Content -LiteralPath (Join-Path $staging 'child.pid') -Raw)) { throw 'Second instance touched trusted credentials' }
+    [DesktopSmoke]::Select($window,217,1)
+    $null = Wait-For { if ([DesktopSmoke]::Text((Control 218)) -like '*PROJECT-FORMAT*') { $true } } 'approved project decision'
+    [DesktopSmoke]::Select($window,108,2)
+    $null = Ready-Control 219
+    $null = Ready-Control 220
+    if ([DesktopSmoke]::IsWindowVisible((Control 114))) { throw 'Endpoint requested before choosing a service' }
+
+    [DesktopSmoke]::Select($window,108,0)
+    $originalChild = Get-Process -Id ([int](Get-Content -LiteralPath (Join-Path $staging 'child.pid') -Raw))
+    [DesktopSmoke]::Click((Ready-Control 216))
+    $null = Wait-For { if ((Get-Content -LiteralPath (Join-Path $staging 'test-operations.txt')) -contains 'accountSync') { $true } } 'in-flight sync'
+    [DesktopSmoke]::NotifySession($process.Id,7)
+    if (!$originalChild.WaitForExit(5000)) { throw 'Windows lock left a blocked controller alive' }
+    $null = Wait-For { if (![DesktopSmoke]::IsWindowVisible((Control 218))) { $true } } 'private preview removed after OS lock'
+    [DesktopSmoke]::NotifySession($process.Id,8)
+    $null = Wait-For { if ([DesktopSmoke]::Text((Control 218)) -like '*COMMON-FORMAT*') { $true } } 'trusted resume after synthetic OS unlock'
+    [DesktopSmoke]::Select($window,108,5)
+    [DesktopSmoke]::Click((Ready-Control 214))
+    $null = Ready-Control 207
+    Close-Desktop
+    Start-Desktop
+    $null = Ready-Control 207
+    if ([DesktopSmoke]::IsWindowVisible((Control 218))) { throw 'Explicit logout was bypassed on next start' }
+    Close-Desktop
+    $ops = Get-Content -LiteralPath (Join-Path $staging 'test-operations.txt')
+    foreach ($legacyOp in @('create','restore','recover','unlock','startWeb')) {
+        if ($ops -contains $legacyOp) { throw "Unexpected setup operation in account flow: $legacyOp" }
+    }
+    'Synthetic account UI: login to recalled preferences, scoped review, deferred service choice, lock during stalled sync, trusted resume and logout verified.'
     $passed = $true
     'Packaged native desktop created, locked, reopened and closed a synthetic vault.'
 } finally {

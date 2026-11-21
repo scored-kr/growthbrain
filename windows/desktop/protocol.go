@@ -25,7 +25,59 @@ type webState struct {
 	Connections                  []connection
 	Audit                        []auditEntry
 }
+type accountState struct {
+	Configured, SignedIn, Trusted bool
+	Email, Sync, Error            string
+	Version, Bytes, Quota         int64
+}
+type previewContext struct {
+	Conditions []struct{ Key, Value string }
+	Handoff    *struct {
+		Goal                  string
+		Completed             []struct{ Claim, Evidence string }
+		Blockers, NextActions []string
+	}
+}
+
+func (p previewContext) text() string {
+	lines := []string{}
+	for _, c := range p.Conditions {
+		lines = append(lines, c.Key+" · "+c.Value)
+	}
+	if p.Handoff != nil {
+		lines = append(lines, "프로젝트 목표 · "+p.Handoff.Goal)
+		for _, c := range p.Handoff.Completed {
+			lines = append(lines, "완료 · "+c.Claim)
+		}
+		for _, b := range p.Handoff.Blockers {
+			lines = append(lines, "미해결 · "+b)
+		}
+		for _, n := range p.Handoff.NextActions {
+			lines = append(lines, "다음 작업 · "+n)
+		}
+	}
+	if len(lines) == 0 {
+		return "이 범위에 적용할 승인된 선호도나 결정이 없습니다."
+	}
+	return strings.Join(lines, "\r\n")
+}
+func syncDescription(a accountState) string {
+	switch a.Sync {
+	case "synced":
+		return "동기화 완료"
+	case "pending":
+		return "동기화 대기 중 · 다른 PC로 이동하기 전에 완료 상태를 확인하세요."
+	case "unavailable":
+		return "동기화 중단 · 연결을 확인하고 다시 시도하세요."
+	case "conflict":
+		return "기기 간 변경 내용이 충돌해 동기화가 중단되었습니다."
+	default:
+		return "동기화 상태 확인 중"
+	}
+}
+
 type state struct {
+	Account          accountState
 	Exists, Unlocked bool
 	Projects         []project
 	Web              webState
@@ -35,6 +87,7 @@ type reply struct {
 	OK       bool
 	Result   state
 	Error    string
+	Preview  *previewContext
 	Previous *struct{ ID, Key, Value string }
 }
 
@@ -88,6 +141,38 @@ func (s state) connectionLabel(c connection) string {
 
 func explain(code string) string {
 	switch code {
+	case "ROUTE_ENROLLMENT_UNAVAILABLE":
+		return "계정용 서비스 연결이 아직 준비되지 않았습니다. 제공 범위가 열리면 다시 시도하세요."
+	case "ROUTE_ENROLLMENT_LIMIT":
+		return "등록 가능한 기기 수에 도달했습니다. 계정의 기기 등록 상태를 확인하세요."
+	case "ROUTE_AUTH_REQUIRED", "ACCOUNT_SESSION_EXPIRED":
+		return "계정 인증이 만료되었습니다. 다시 로그인하세요."
+	case "ACCOUNT_EMAIL_INVALID":
+		return "이메일 주소를 확인하세요."
+	case "ACCOUNT_CODE_INVALID":
+		return "확인 코드가 틀렸거나 만료되었습니다. 최근 메일의 코드를 확인하세요."
+	case "ACCOUNT_MFA_REQUIRED", "ACCOUNT_MFA_INVALID":
+		return "2단계 인증 확인이 필요합니다. 계정 비밀번호와 인증 앱의 현재 6자리 코드를 입력하세요."
+	case "ACCOUNT_MFA_UNSUPPORTED":
+		return "이 계정의 2단계 인증 방식은 이 설치본에서 지원하지 않습니다. 계정 관리자에게 지원되는 로그인 방식을 확인하세요."
+	case "ACCOUNT_NETWORK_UNAVAILABLE":
+		return "계정 서비스에 연결하지 못했습니다. 인터넷 연결을 확인하고 다시 시도하세요."
+	case "WEAK_ACCOUNT_PASSWORD", "INVALID_ACCOUNT_PASSWORD":
+		return "16자 이상, 서로 다른 문자 6개 이상의 예측하기 어려운 Growth Brain 전용 비밀번호를 정하세요."
+	case "SYNC_REMOTE_MISSING", "SYNC_EPOCH_CHANGED":
+		return "이전에 사용하던 계정 기억이 삭제되었거나 새 저장소로 바뀌었습니다."
+	case "SYNC_QUOTA":
+		return "서버의 계정 저장 한도에 도달했습니다. 동기화를 완료하지 못했습니다."
+	case "ACCOUNT_RECOVERY_REQUIRED", "ACCOUNT_KEY_MISMATCH", "ACCOUNT_UNWRAP_FAILED":
+		return "이 비밀번호로 기존 기억을 복호화하지 못했습니다. 기존 계정의 복구 절차를 확인하세요."
+	case "ACCOUNT_UNCONFIGURED", "AUTH_UNCONFIGURED", "SYNC_UNCONFIGURED":
+		return "이 설치본에서는 계정 서비스를 사용할 수 없습니다. 지원되는 시험본을 확인하세요."
+	case "ACCOUNT_AUTH_FAILED", "INVALID_CREDENTIALS", "AUTH_INVALID", "AUTH_FAILED":
+		return "로그인할 수 없습니다. 이메일과 Growth Brain 비밀번호를 확인하세요."
+	case "ACCOUNT_EMAIL_UNCONFIRMED", "EMAIL_UNCONFIRMED", "AUTH_EMAIL_UNCONFIRMED":
+		return "이메일 확인이 필요합니다. 받은 메일의 확인 코드를 입력하세요."
+	case "SYNC_CONFLICT":
+		return "다른 기기에서 더 최근 변경 사항을 저장했습니다. 동기화 상태를 확인하세요."
 	case "RESTORE_TARGET_EXISTS":
 		return "이 Windows 프로필에 금고 저장 폴더가 이미 있습니다. 기존 금고를 보존하고 금고가 없는 다른 Windows 프로필에서 복원하세요."
 	case "BACKUP_DESTINATION_EXISTS":
@@ -144,4 +229,30 @@ func decodeReply(line []byte, id int) (reply, bool) {
 	var r reply
 	err := json.Unmarshal(line, &r)
 	return r, err == nil && r.ID == id && (r.OK || r.Error != "")
+}
+
+// Windows broadcasts lock, disconnect and logoff independently of interactive
+// requests. A positive polling result alone must never undo one of these events.
+type sessionGuard struct{ blocked bool }
+
+func (g *sessionGuard) notify(event uintptr) {
+	switch event {
+	case 2, 4, 6, 7:
+		g.blocked = true
+	case 1, 3, 5, 8:
+		g.blocked = false
+	}
+}
+func (g sessionGuard) usable(registered, activeAndUnlocked bool) bool {
+	return registered && !g.blocked && activeAndUnlocked
+}
+
+// The provider also rejects predictable passwords. Let it make the final decision.
+func meetsAccountLength(s string) bool {
+	lower := []rune(strings.ToLower(s))
+	seen := make(map[rune]struct{}, 6)
+	for _, r := range lower {
+		seen[r] = struct{}{}
+	}
+	return len([]rune(s)) >= 16 && len(seen) >= 6
 }
