@@ -5,7 +5,7 @@
 **현재 배포 상태**
 이 브랜치에서 만든 기본 설치 파일로 Windows 설치와 로그인 화면을 시험할 수 있다. 기존 Supabase의 회원 격리 및 암호문 동기화 계약을 실제로 확인하고 연결 설정을 담은 시험 파일이 준비되어야 두 PC 시험을 시작할 수 있다. ‘계정 연결이 준비되지 않았습니다’ 또는 동기화 준비 안내가 나타나면 그 화면에서 멈춘다. 테스터가 서버를 설정하거나 기존 로컬 데이터를 옮길 필요는 없다.
 
-[Windows 빌드 목록](https://github.com/scored-kr/growthbrain/actions/workflows/windows.yml?query=branch%3Acodex%2Fgrowthbrain-recovery-20261103)에서 전달받은 커밋의 성공한 실행을 열고 **Artifacts → GrowthBrain-Windows-x64-커밋** ZIP을 다운로드한다. 체크섬과 함께 들어 있는 `GrowthBrain-Setup-x64.exe`를 양쪽 PC에서 실행한다. 시험 설치 파일은 서명 전 산출물이다. 관리 정책이 실행을 제한하면 해당 화면을 결과에 기록한다.
+오프라인 편집과 충돌 검토를 담은 설치 시험본의 소스는 `504fa1d`다. ZIP을 풀고 `GrowthBrain-Setup-x64.exe`를 실행한다. EXE의 SHA-256은 `471c4a46ea956a93a484a1f6528b41af4729fae38acae712baa95ef3c93f4167`이며 ZIP에도 체크섬이 들어 있다. 시험 설치 파일은 서명 전 산출물이다. 관리 정책이 실행을 제한하면 해당 화면을 결과에 기록한다. [설치 ZIP](https://github.com/scored-kr/growthbrain/actions/runs/44909840537/artifacts/14708698750) · [Windows 빌드 목록](https://github.com/scored-kr/growthbrain/actions/workflows/windows.yml?query=branch%3Acodex%2Fgrowthbrain-recovery-20261103)
 
 ## PC A에서 승인한 뒤 완전히 종료
 

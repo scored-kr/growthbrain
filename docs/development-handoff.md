@@ -21,6 +21,10 @@
 
 로컬 Supabase PostgreSQL 15.8과 PostgreSQL 17.12에서 각각 회원 격리·조건부 쓰기·삭제·한도·읽기 전용 카탈로그를 포함한 19개 검사를 통과했다. 사용한 GoTrue 버전은 2.197.0, PostgREST는 14.18이다. 두 데이터베이스에서 얻은 카탈로그 지문은 저장소의 후보 지문과 일치했다. 실사용 프로젝트의 기존 스키마와 권한을 확인하는 단계는 아래의 대시보드 보고서를 기다린다.
 
+### 현재 Windows 설치 시험본
+
+소스 `504fa1d06ebf59dd28d64a810d8d46fb093cb015`에서 만든 설치 파일로 Windows Server 2025 설치·업데이트·제거, 시작 메뉴, 충돌 검토 화면, 패키지에 포함된 런타임의 오프라인 재연결과 두 서비스용 HTTPS MCP 조회를 통과했다. 시험본의 계정 연결은 기본 미설정 상태다. 실제 Windows 11 두 대에서 개인 ChatGPT·Claude 일반 채팅이 도구를 선택한 결과는 아직 없다. [설치 ZIP](https://github.com/scored-kr/growthbrain/actions/runs/44909840537/artifacts/14708698750) · [Windows 검사](https://github.com/scored-kr/growthbrain/actions/runs/44909840537/job/136863363276) · [Linux 검사](https://github.com/scored-kr/growthbrain/actions/runs/44909840535) · [체크섬과 사용자 절차](windows-test-guide.md)
+
 ### 이전 Windows 시험 파일
 
 패키지 소스는 `0d87f9f14082a1aa9ba4b37572ef2e8b05053660`이고 EXE의 SHA-256은 `84c991bdb839ba142422b76e341f0d0ba52bf1c8472935eb8f84b2bd785ee7dd`다. Windows Server 2025에서 설치·업데이트·시작 메뉴·제거, 실제 사용자 DPAPI, 패키지의 두 독립 프로세스에서 계정 복원 및 서비스별 OAuth/MCP 호출을 확인했다. 두 클라이언트가 ‘지난번 정한 조건대로 다음 작업을 진행해줘’만 조회문으로 전달했을 때 각각 ‘답변은 한국어로’와 ‘캠페인 채널은 뉴스레터’를 읽었다. 다른 계정으로 전환한 뒤 이전 토큰은 거부됐다. [설치 ZIP](https://github.com/scored-kr/growthbrain/actions/runs/44893763327/artifacts/14702837605) · [Windows 실행 기록](https://github.com/scored-kr/growthbrain/actions/runs/44893763327/job/136815186607) · [Linux 실행 기록](https://github.com/scored-kr/growthbrain/actions/runs/44893763303)
