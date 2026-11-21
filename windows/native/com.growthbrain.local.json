@@ -1,0 +1,9 @@
+{
+  "name": "com.growthbrain.local",
+  "description": "Growth Brain local encrypted vault bridge",
+  "path": "NativeHost.exe",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://jhmnmlhlpbapgncnnhjcgmlohdpeglbf/"
+  ]
+}

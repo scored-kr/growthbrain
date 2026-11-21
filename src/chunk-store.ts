@@ -1,5 +1,5 @@
 import {createHash,randomUUID} from 'node:crypto';
-import {readdir,unlink,mkdir} from 'node:fs/promises';
+import {readdir,unlink} from 'node:fs/promises';
 import {join} from 'node:path';
 import {z} from 'zod';
 import {MemoryEngine} from './engine.js';
@@ -96,7 +96,7 @@ export class ChunkStore {
   try{
    const loaded=await assemble(delta.head,key,async id=>{if(!delta.objects[id])throw Error('MISSING_CHUNK_OBJECT');return delta.objects[id]});
    const required=new Set(loaded.manifest.entries.map(e=>e.hash));if(Object.keys(delta.objects).some(id=>!required.has(id)))throw Error('INVALID_CHUNK_OBJECT');
-   await mkdir(directory,{mode:0o700});await privateDirectory(join(directory,'objects'));
+   await privateDirectory(directory,true);await privateDirectory(join(directory,'objects'));
    for(const [id,object] of Object.entries(delta.objects))await writePrivateJSON(join(directory,'objects',`${id}.json`),object,true,16*1024*1024);
    await writePrivateJSON(join(directory,'vault.json'),delta.head,true);
    return {...loaded,key,header:delta.head.header,store:new ChunkStore(directory,key,delta.head,hash(delta.head),loaded.cache,loaded.manifest.revision,delta.head.storeId,loaded.manifest.ancestors)};

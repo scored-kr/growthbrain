@@ -2,6 +2,7 @@ import { createServer, createConnection, type Socket } from 'node:net';
 import { chmod, lstat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
+import { listenWindowsNative, openWindowsNative } from './windows-native.js';
 import { agentCaptureInputSchema, agentClientSchema, workspaceSchema, captureInputSchema, consentSchema, contextSchema, identifier, proposalSchema, searchSchema } from './model.js';
 import { privateDirectory, type VaultSession } from './vault.js';
 import type {LocalInference} from './local-inference.js';
@@ -60,7 +61,7 @@ export async function startBroker(vault: VaultSession, directory: string, option
   const sockets = new Set<Socket>();
   let closing = false;
   let closePromise: Promise<void> | undefined;
-  const server = createServer(socket => {
+  const accept = (socket: Socket) => {
     if (closing) { socket.destroy(); return; }
     sockets.add(socket);
     socket.once('close', () => sockets.delete(socket));
@@ -109,20 +110,28 @@ export async function startBroker(vault: VaultSession, directory: string, option
         socket.end(Buffer.byteLength(response) > MAX_RESPONSE ? JSON.stringify({ error: 'RESPONSE_TOO_LARGE' }) + '\n' : response);
       })().catch(e => socket.end(JSON.stringify({ error: safeError(e) }) + '\n'));
     });
-  });
-  // Never unlink an existing endpoint: it may belong to another running session.
-  await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(path, resolve); });
-  await chmod(path, 0o600);
+  };
+  let stop: () => Promise<void>;
+  if (process.platform === 'win32') {
+    stop = await listenWindowsNative(path, accept);
+  } else {
+    const server = createServer(accept);
+    // Never unlink an existing endpoint: it may belong to another running session.
+    await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(path, resolve); });
+    await chmod(path, 0o600);
+    stop = async () => {
+      await new Promise<void>((resolve, reject) => server.close(e => e ? reject(e) : resolve()));
+      await unlink(path).catch(e => { if (e.code !== 'ENOENT') throw e; });
+    };
+  }
   return {
     path,
     close() {
-      if (closePromise) return closePromise;
-      closing = true;
-      closePromise = new Promise<void>((resolve, reject) => {
-        server.close(e => e ? reject(e) : resolve());
-        // Idle/partial peers must not prolong an unlocked session or complete a late request.
+      if (!closePromise) {
+        closing = true;
+        closePromise = stop();
         for (const socket of sockets) socket.destroy();
-      }).then(async () => { await unlink(path).catch(e => { if (e.code !== 'ENOENT') throw e; }); });
+      }
       return closePromise;
     },
   };
@@ -134,16 +143,22 @@ export async function callBroker(path: string, method: string, params: unknown):
   try { request = JSON.stringify({ method, params }) + '\n'; }
   catch { throw new Error('INVALID_REQUEST'); }
   if (Buffer.byteLength(request) > MAX_REQUEST) throw new Error('REQUEST_TOO_LARGE');
+  let socket: Socket;
   try {
-    const stat = await lstat(path);
-    if (!stat.isSocket() || (stat.mode & 0o077) || stat.uid !== process.getuid?.()) throw new Error('UNSAFE_SOCKET');
+    if (process.platform === 'win32') {
+      socket = await openWindowsNative(path);
+    } else {
+      const stat = await lstat(path);
+      if (!stat.isSocket() || (stat.mode & 0o077) || stat.uid !== process.getuid?.()) throw new Error('UNSAFE_SOCKET');
+      socket = createConnection(path);
+    }
   } catch { throw new Error('VAULT_LOCKED'); }
   return await new Promise((resolve, reject) => {
-    const socket = createConnection(path); let buffer = Buffer.alloc(0);
+    let buffer = Buffer.alloc(0);
     const fail = () => { socket.destroy(); reject(new Error('VAULT_LOCKED')); };
     socket.setTimeout(5000, fail);
     socket.once('error', fail);
-    socket.once('connect', () => socket.write(request));
+    socket.once(process.platform === 'win32' ? 'secureConnect' : 'connect', () => socket.write(request));
     socket.on('data', chunk => {
       if (buffer.length + chunk.length > MAX_RESPONSE) { socket.destroy(); reject(new Error('RESPONSE_TOO_LARGE')); return; }
       buffer = Buffer.concat([buffer, chunk]);

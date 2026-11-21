@@ -218,6 +218,7 @@ export class MemoryEngine {
     this.state.captures.push(...captures);
     return {imported:captures.length,duplicates,candidateIds,reviewRequired:true};
   }
+  listProjects() { return structuredClone(this.state.projects); }
   addProject(name: string) {
     const p = stateSchema.shape.projects.element.parse({ id: randomUUID(), name });
     if (this.state.projects.length >= 1000) throw new Error('PROJECT_LIMIT');

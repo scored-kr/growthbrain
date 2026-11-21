@@ -1,11 +1,12 @@
 import { randomBytes } from 'node:crypto';
-import { open, readFile, unlink, mkdir, lstat, rmdir, realpath, readdir } from 'node:fs/promises';
-import { dirname, join, resolve, relative, isAbsolute, basename } from 'node:path';
+import { open, unlink, lstat, rmdir, realpath, readdir } from 'node:fs/promises';
+import { dirname, join, resolve, relative, isAbsolute, basename, sep } from 'node:path';
 import { MemoryEngine } from './engine.js';
 import { identifier, STATE_VERSION, type TaskType } from './model.js';
 import { envelopeSchema, recoverySchema, derive, decrypt, decryptRecovery, seal, sealState, newHeader, type Envelope, type Header } from './envelope.js';
 
 import {ChunkStore,chunkHeadSchema,deltaSchema,ownedChunkObjects} from './chunk-store.js';
+import {windowsFiles} from './windows-files.js';
 import {privateDirectory,readPrivateJSON,writePrivateJSON,stagingFiles} from './secure-files.js';
 export {privateDirectory} from './secure-files.js';
 
@@ -20,7 +21,7 @@ async function recoveryDestination(file: string, vaultFile: string) {
   await privateDirectory(dirname(file));
   file = join(await realpath(dirname(file)), basename(file));
   const inside = relative(await realpath(dirname(vaultFile)), file);
-  if (!inside || (inside !== '..' && !inside.startsWith('../') && !isAbsolute(inside))) throw new Error('KEEP_RECOVERY_SEPARATE');
+  if (!inside || (inside !== '..' && !inside.startsWith('..'+sep) && !isAbsolute(inside))) throw new Error('KEEP_RECOVERY_SEPARATE');
   // Never create a plaintext recovery file inside a working tree, including worktrees with a .git file.
   for (let path = dirname(file); ; path = dirname(path)) {
     const git = await lstat(join(path, '.git')).catch((error: NodeJS.ErrnoException) => {
@@ -33,9 +34,31 @@ async function recoveryDestination(file: string, vaultFile: string) {
   return file;
 }
 async function readRecovery(file: string) {
-  const stat = await lstat(file);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || (stat.mode & 0o077) || stat.size > 1024) throw new Error('INVALID_RECOVERY_FILE');
-  return recoverySchema.parse(JSON.parse(await readFile(file, 'utf8')));
+  try {
+    return recoverySchema.parse(await readPrivateJSON(file, 1024));
+  } catch {
+    throw Error('INVALID_RECOVERY_FILE');
+  }
+}
+
+async function acquireVaultLock(file: string): Promise<() => Promise<void>> {
+  try {
+    if (process.platform === 'win32') {
+      const handle = await windowsFiles('lock', file);
+      if (!/^[1-9][0-9]*$/.test(handle)) throw Error('INVALID_LOCK');
+      return async () => { await windowsFiles('release', file, handle); };
+    }
+    const fd = await open(file, 'wx', 0o600);
+    try {
+      await fd.writeFile(String(process.pid));
+    } catch (error) {
+      await unlink(file);
+      throw error;
+    } finally { await fd.close(); }
+    return async () => { await unlink(file); };
+  } catch {
+    throw Error('VAULT_ALREADY_OPEN_OR_STALE_LOCK');
+  }
 }
 
 /** A single local process owns the unlocked key. The socket/MCP never receives it. */
@@ -46,7 +69,7 @@ export class VaultSession {
   private closing = false;
   private failedCommit=false;
   private chunks?:ChunkStore;
-  private constructor(private file: string, private header: Header, engine: MemoryEngine, key: Buffer, private lockFile: string) {
+  private constructor(private file: string, private header: Header, engine: MemoryEngine, key: Buffer, private releaseLock: () => Promise<void>) {
     this.engine = engine; this.key = key;
   }
   static async open(directory: string, ownerId: string, password: string, create = false) {
@@ -55,9 +78,7 @@ export class VaultSession {
     await privateDirectory(directory);
     const file = join(directory, 'vault.json');
     const lockFile = join(directory, 'vault.lock');
-    let lock;
-    try { lock = await open(lockFile, 'wx', 0o600); } catch { throw new Error('VAULT_ALREADY_OPEN_OR_STALE_LOCK'); }
-    await lock.writeFile(String(process.pid)); await lock.close();
+    const release = await acquireVaultLock(lockFile);
     let key: Buffer | undefined;
     try {
       let engine: MemoryEngine; let header: Header;let chunks:ChunkStore|undefined;
@@ -76,15 +97,15 @@ export class VaultSession {
           if(opened.sourceStateVersion<STATE_VERSION)await persist(join(directory,`pre-state-v${STATE_VERSION}-${randomBytes(12).toString('hex')}.enc`),data,true);
         }
       }
-      const session=new VaultSession(file,header,engine,key,lockFile);session.chunks=chunks;return session;
-    } catch (e) { key?.fill(0); await unlink(lockFile); throw e; }
+      const session=new VaultSession(file,header,engine,key,release);session.chunks=chunks;return session;
+    } catch (e) { key?.fill(0); await release(); throw e; }
   }
   static async restore(backup: string, directory: string, ownerId: string, password: string) {
     identifier.parse(ownerId);
     const data=await readPrivateJSON(resolve(backup));
     if(deltaSchema.safeParse(data).success){
       const restored=await ChunkStore.restore(data,resolve(directory),ownerId,password);const lockFile=join(resolve(directory),'vault.lock');
-      try{const lock=await open(lockFile,'wx',0o600);try{await lock.writeFile(String(process.pid))}finally{await lock.close()}const session=new VaultSession(join(resolve(directory),'vault.json'),restored.header,restored.engine,restored.key,lockFile);session.chunks=restored.store;return session;}catch(e){restored.key.fill(0);throw e}
+      try{const release=await acquireVaultLock(lockFile);const session=new VaultSession(join(resolve(directory),'vault.json'),restored.header,restored.engine,restored.key,release);session.chunks=restored.store;return session;}catch(e){restored.key.fill(0);throw e}
     }
     const {engine,key,header}=await decrypt(envelopeSchema.parse(data),ownerId,password);
     return await this.restoreOpened(directory,engine,key,header);
@@ -102,18 +123,18 @@ export class VaultSession {
   }
   private static async restoreOpened(directory: string, engine: MemoryEngine, key: Buffer, header: Header) {
     directory=resolve(directory);
-    try { await mkdir(directory,{mode:0o700}); }
+    try { await privateDirectory(directory,true); }
     catch(e) { key.fill(0);throw e; }
     const file=join(directory,'vault.json'), lockFile=join(directory,'vault.lock');
+    let release;
     try {
-      const lock=await open(lockFile,'wx',0o600);
-      try {await lock.writeFile(String(process.pid));} finally {await lock.close();}
+      release = await acquireVaultLock(lockFile);
       await persist(file,seal(engine,key,header),true);
-      return new VaultSession(file,header,engine,key,lockFile);
+      return new VaultSession(file,header,engine,key,release);
     } catch(e) {
       key.fill(0);
       // Only remove files created in the new, owned directory; never overwrite a pre-existing vault.
-      await unlink(lockFile).catch(()=>{});await unlink(file).catch(()=>{});await rmdir(directory).catch(()=>{});
+      await release?.();await rmdir(directory).catch(()=>{});
       throw e;
     }
   }
@@ -163,6 +184,7 @@ export class VaultSession {
     return operation(new MemoryEngine(this.requireOpen().snapshot()));
   }
   assertUnlocked(){if(this.closing)throw new Error('VAULT_LOCKED');this.requireOpen()}
+  listProjects(){this.assertUnlocked();return this.requireOpen().listProjects()}
   getContext(input:unknown,commonOnly=false) {
     if(this.closing)throw new Error('VAULT_LOCKED');
     return structuredClone(this.requireOpen().getContext(input,commonOnly));
@@ -205,7 +227,7 @@ export class VaultSession {
     await this.queue;
     if (!this.key) return;
     this.key.fill(0); this.key = undefined; this.engine = undefined;this.chunks?.clear();
-    await unlink(this.lockFile);
+    await this.releaseLock();
   }
   async deleteAll() {
     if (this.closing) throw new Error('VAULT_LOCKED');
