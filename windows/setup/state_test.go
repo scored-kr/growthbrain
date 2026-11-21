@@ -165,6 +165,13 @@ func TestBundledLifecycle(t *testing.T) {
 			t.Fatalf("missing Windows executable: %s", name)
 		}
 	}
+	notices, err := os.ReadFile(filepath.Join(base, "app", "licenses", "THIRD-PARTY-NOTICES.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(notices, []byte("zstd/internal/xxhash/LICENSE.txt\n\nCopyright (c) 2016 Caleb Spare")) {
+		t.Fatal("missing xxhash package attribution for the bundled zstd implementation")
+	}
 	if err := removeApp(base, func(string) error { return nil }); err != nil {
 		t.Fatal(err)
 	}

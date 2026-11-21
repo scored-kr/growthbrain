@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import urllib.request
 import zipfile
+from release_files import EXTENSION_FILES
 
 ROOT = Path(__file__).resolve().parents[1]
 NODE_PREFIX = "node-v24.19.0-win-x64"
@@ -61,14 +62,14 @@ def make_payload(tmp, archive):
     shutil.rmtree(app / "node_modules/.bin", ignore_errors=True)
     node_runtime(app, tmp, archive)
 
-    # Only tracked product extension files are packaged; the Windows copy has a stable ID.
+    # Use the same reviewed files as the ZIP. A product source archive has no .git directory.
     extension = app / "extension"
     extension.mkdir()
-    files = subprocess.check_output(["git", "ls-files", "-z", "extension"], cwd=ROOT).decode().split("\0")
-    for filename in filter(None, files):
-        dest = app / filename
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT / filename, dest)
+    for filename in EXTENSION_FILES:
+        source = ROOT / "extension" / filename
+        if source.is_symlink() or not source.is_file():
+            raise ValueError(f"Expected a regular product extension file: {filename}")
+        shutil.copy2(source, extension / filename)
     shutil.copyfile(app / "dist/account-auth.js", extension / "account-auth.js")
     manifest = extension / "manifest.json"
     cfg = json.loads(manifest.read_text())
