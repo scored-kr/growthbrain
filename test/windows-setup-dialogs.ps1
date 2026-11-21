@@ -32,10 +32,15 @@ if (@(Get-NativeRegistrations).Count) { throw 'Refusing pre-existing native regi
 
 Add-Type -TypeDefinition @'
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
 public static class GrowthBrainSetupDialog {
   private delegate bool EnumProc(IntPtr window, IntPtr unused);
+  [DllImport("user32.dll")] private static extern bool EnumWindows(EnumProc callback, IntPtr param);
+  [DllImport("user32.dll")] private static extern int GetDlgCtrlID(IntPtr h);
+  [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] private static extern bool IsWindowEnabled(IntPtr h);
   [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr parent, EnumProc callback, IntPtr param);
   [DllImport("user32.dll",CharSet=CharSet.Unicode)] private static extern int GetClassName(IntPtr window,StringBuilder name,int chars);
   [DllImport("user32.dll",CharSet=CharSet.Unicode)] private static extern int GetWindowText(IntPtr window,StringBuilder text,int chars);
@@ -47,40 +52,80 @@ public static class GrowthBrainSetupDialog {
   private static string Class(IntPtr window) {
     var s=new StringBuilder(64); GetClassName(window,s,s.Capacity); return s.ToString();
   }
-  public static bool Click(IntPtr h,int pid,string expected,int id) {
-    uint actual;
-    GetWindowThreadProcessId(h,out actual);
-    if(actual != (uint)pid || Class(h)!="#32770") return false;
-    var title=new StringBuilder(100); GetWindowText(h,title,title.Capacity);
-    if(title.ToString()!="Growth Brain 설치") return false;
-    string body="";
-    EnumChildWindows(h,delegate(IntPtr child,IntPtr unused) {
-      if (Class(child)=="Static") {
-        var text=new StringBuilder(2048); UIntPtr result;
-        ReadText(child,13,(IntPtr)text.Capacity,text,2,1000,out result);
-        body+=text.ToString();
-      }
+  // A process can have multiple top-level dialogs with different owner windows.
+  public static IntPtr[] Windows(int pid) {
+    var result = new List<IntPtr>();
+    EnumWindows(delegate(IntPtr h,IntPtr unused) {
+      uint owner; GetWindowThreadProcessId(h,out owner);
+      if(owner==(uint)pid && IsWindowVisible(h)) result.Add(h);
       return true;
     },IntPtr.Zero);
-    if(body.Contains("작업을 마치지 못했습니다.")) throw new Exception(body);
-    IntPtr button=GetDlgItem(h,id);
-    if(!body.Contains(expected) || button==IntPtr.Zero) return false;
-    // Send a normal button click only to this process and this exact prompt.
-    return PostMessage(button,0x00F5,IntPtr.Zero,IntPtr.Zero);
+    return result.ToArray();
+  }
+  private static string ReadBody(IntPtr h,out string ids) {
+    var labels=new StringBuilder();
+    var buttons=new List<int>();
+    EnumChildWindows(h,delegate(IntPtr child,IntPtr unused) {
+      string cls=Class(child);
+      if(cls=="Static") {
+        var text=new StringBuilder(1024); UIntPtr result;
+        ReadText(child,13,(IntPtr)text.Capacity,text,2,300,out result);
+        labels.Append(text.ToString());
+      } else if(cls=="Button") buttons.Add(GetDlgCtrlID(child));
+      return true;
+    },IntPtr.Zero);
+    ids=String.Join(",",buttons);
+    return labels.ToString();
+  }
+  public static bool Click(int pid,string expected,int id,out string observation) {
+    var details=new List<string>();
+    foreach(IntPtr h in Windows(pid)) {
+      string cls=Class(h);
+      var title=new StringBuilder(100); GetWindowText(h,title,title.Capacity);
+      if(cls!="#32770" || title.ToString()!="Growth Brain 설치") {
+        details.Add("class="+cls); continue;
+      }
+      string ids;
+      string body=ReadBody(h,out ids);
+      string summary=body.Replace('\r',' ').Replace('\n',' ');
+      if(summary.Length>350) summary=summary.Substring(0,350);
+      details.Add("class="+cls+" buttons=["+ids+"] text=["+summary+"]");
+      if(body.Contains("작업을 마치지 못했습니다.")) throw new InvalidOperationException(summary);
+      if(!body.Contains(expected) || !IsWindowEnabled(h)) continue;
+      IntPtr button=GetDlgItem(h,id);
+      // BN_CLICKED is delivered to the dialog via WM_COMMAND. Sending BM_CLICK
+      // to an inactive button can silently do nothing on a noninteractive desktop.
+      bool sent = button!=IntPtr.Zero && IsWindowEnabled(button) &&
+        PostMessage(h,0x0111,(IntPtr)id,button);
+      if(!sent && id==1 && button==IntPtr.Zero && expected=="앱을 제거했습니다.")
+        sent=PostMessage(h,0x0010,IntPtr.Zero,IntPtr.Zero);
+      if(sent) { observation=details[details.Count-1]; return true; }
+    }
+    observation=details.Count>0?String.Join("; ",details):"(no visible windows for setup PID)";
+    return false;
   }
 }
 '@
 
 function Click-Setup([Diagnostics.Process]$Process, [string]$Prompt, [int]$Button) {
     $end = [DateTime]::UtcNow.AddSeconds(150)
+    $last = ''
     do {
         $Process.Refresh()
         if ($Process.HasExited) { throw "Setup exited before the expected prompt: $Prompt" }
-        $window = $Process.MainWindowHandle
-        if ($window -ne [IntPtr]::Zero -and [GrowthBrainSetupDialog]::Click($window,$Process.Id,$Prompt,$Button)) { return }
+        $observed = ''
+        if ([GrowthBrainSetupDialog]::Click($Process.Id,$Prompt,$Button,[ref]$observed)) {
+            Write-Host "Setup selected button $Button on $observed"
+            return
+        }
+        if ($observed -ne $last) {
+            Write-Host "Waiting for $Prompt. Setup PID $($Process.Id) shows $observed"
+            $last = $observed
+        }
         Start-Sleep -Milliseconds 150
     } while ([DateTime]::UtcNow -lt $end)
-    throw "Setup dialog timed out: $Prompt"
+    $registrationCount = @(Get-NativeRegistrations).Count
+    throw "Setup timed out waiting for $Prompt. Last windows: $last. App exists: $(Test-Path -LiteralPath $app), shortcut exists: $(Test-Path -LiteralPath $link), native registry entries: $registrationCount."
 }
 
 function Invoke-Setup([bool]$Remove) {
