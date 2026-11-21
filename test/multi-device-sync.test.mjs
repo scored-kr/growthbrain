@@ -149,7 +149,8 @@ test('fresh device serves approved latest memories to both web MCP clients after
   const existing=await a.send('addPreference',next);
   assert.equal(existing.error,'EXPLICIT_SUPERSESSION_REQUIRED');
   const saved=await a.run('addPreference',{...next,supersedesId:existing.previous.id});
-  assert.equal(saved.account.sync,'synced');
+  assert.ok(['pending','synced'].includes(saved.account.sync));
+  assert.equal((await a.run('accountSync')).account.sync,'synced');
   const candidate=await callBroker(join(root,'pc-a','active','memory.sock'),'propose_memory',{
     scope:{type:'project',projectId:mainProject.id},kind:'decision',key:'channel',value:unapproved,
     source:{kind:'ai',reference:'fixture:pending',excerpt:'합성 검토 원문'},reason:'사용자가 검토할 합성 제안',

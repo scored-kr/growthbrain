@@ -25,7 +25,14 @@ type webState struct {
 	Connections                  []connection
 	Audit                        []auditEntry
 }
+type conflictItem struct{ ID, Key, ProjectID, ProjectName, LocalValue, RemoteValue string }
+type conflictPage struct {
+	Token         string
+	Offset, Total int
+	Items         []conflictItem
+}
 type accountState struct {
+	Review, PendingChanges        bool
 	Configured, SignedIn, Trusted bool
 	Email, Sync, Error            string
 	Version, Bytes, Quota         int64
@@ -68,7 +75,13 @@ func syncDescription(a accountState) string {
 	case "pending":
 		return "동기화 대기 중 · 다른 PC로 이동하기 전에 완료 상태를 확인하세요."
 	case "unavailable":
-		return "동기화 중단 · 연결을 확인하고 다시 시도하세요."
+		if a.Error == "SYNC_UNAVAILABLE" || a.Error == "ACCOUNT_NETWORK_UNAVAILABLE" {
+			if a.PendingChanges {
+				return "기기에 저장됨 · 연결되면 자동 동기화"
+			}
+			return "동기화 서버에 연결할 수 없습니다. 이 기기에서 기억을 사용할 수 있습니다."
+		}
+		return explain(a.Error)
 	case "conflict":
 		return "기기 간 변경 내용이 충돌해 동기화가 중단되었습니다."
 	default:
@@ -83,12 +96,14 @@ type state struct {
 	Web              webState
 }
 type reply struct {
-	ID       int
-	OK       bool
-	Result   state
-	Error    string
-	Preview  *previewContext
-	Previous *struct{ ID, Key, Value string }
+	LocalSaved bool
+	Conflict   *conflictPage
+	ID         int
+	OK         bool
+	Result     state
+	Error      string
+	Preview    *previewContext
+	Previous   *struct{ ID, Key, Value string }
 }
 
 var validKey = regexp.MustCompile(`^[a-z][a-z0-9_.-]{0,79}$`)
@@ -171,6 +186,8 @@ func explain(code string) string {
 		return "로그인할 수 없습니다. 이메일과 Growth Brain 비밀번호를 확인하세요."
 	case "ACCOUNT_EMAIL_UNCONFIRMED", "EMAIL_UNCONFIRMED", "AUTH_EMAIL_UNCONFIRMED":
 		return "이메일 확인이 필요합니다. 받은 메일의 확인 코드를 입력하세요."
+	case "LOCAL_SAVED_STATUS_UNAVAILABLE":
+		return "이 기기에 저장했습니다. 동기화 상태를 다시 확인하세요."
 	case "SYNC_CONFLICT":
 		return "다른 기기에서 더 최근 변경 사항을 저장했습니다. 동기화 상태를 확인하세요."
 	case "RESTORE_TARGET_EXISTS":

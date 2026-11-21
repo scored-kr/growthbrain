@@ -81,9 +81,10 @@ var responses = make(chan desktopReply, 8)
 var notice string
 
 func isCombo(id int) bool {
-	return id == previewScope || id == initialMode || id == key || id == pages || id == scope || id == requests || id == approvalScope || id == grants
+	return id == conflictItems || id == previewScope || id == initialMode || id == key || id == pages || id == scope || id == requests || id == approvalScope || id == grants
 }
 func createControls() {
+	createConflictControls()
 	createAccountControls()
 	label := func(id int, t string) { newControl(id, "STATIC", t, 0x80, 0) } // SS_NOPREFIX
 	edit := func(id int, flags uintptr) { newControl(id, "EDIT", "", 0x10000|flags, 0x200) }
@@ -161,7 +162,9 @@ func ids(items ...int) []row {
 			height = 24
 		case routeLabel:
 			height = 100
-		case accountMessage:
+		case localVersion, remoteVersion:
+			height = 90
+		case conflictExplain, accountMessage:
 			height = 70
 		case previewText:
 			height = 156
@@ -208,6 +211,8 @@ func render(reset bool) {
 		}
 	} else if busy && (pending["op"] == "lock" || pending["op"] == "accountLogout" || pending["op"] == "accountSuspend") {
 		put(banner, "기억 접근과 읽기 연결을 종료하고 있습니다.")
+	} else if s.Account.SignedIn && s.Account.Review {
+		renderConflict()
 	} else if !s.Unlocked && !legacyMode {
 		renderSignIn()
 	} else if !s.Unlocked {
@@ -391,6 +396,9 @@ func finish(r reply) {
 	delete(q, "code")
 	delete(q, "totpCode")
 	if !r.OK {
+		if (op == "resolveSyncConflicts" || op == "reviewSyncConflicts") && r.Error == "SYNC_CONFLICT" {
+			discardReview()
+		}
 		queued = nil
 		if r.Error == "ACCOUNT_MFA_REQUIRED" || r.Error == "ACCOUNT_MFA_INVALID" {
 			loginMFA = true
@@ -421,6 +429,9 @@ func finish(r reply) {
 			offline = true
 			clearPrivate()
 		}
+		if r.LocalSaved {
+			notice = explain("LOCAL_SAVED_STATUS_UNAVAILABLE")
+		}
 		if op == "previewContext" {
 			put(previewText, "기억을 읽지 못했습니다. 동기화 상태를 확인하세요.")
 		}
@@ -439,6 +450,12 @@ func finish(r reply) {
 	}
 	prior := s
 	s = r.Result
+	if prior.Account.Review != s.Account.Review {
+		clearPrivate()
+	}
+	if op == "reviewSyncConflicts" && s.Account.Review {
+		showReview(r.Conflict)
+	}
 	if r.OK {
 		acceptAccountReply(op, q, r, prior)
 	}
@@ -450,6 +467,14 @@ func finish(r reply) {
 	}
 	if op != "status" {
 		switch op {
+		case "reviewSyncConflicts":
+			if r.Conflict == nil {
+				notice = "이 변경에는 자동 비교 화면을 제공할 수 없습니다. 두 기기의 내용을 보존했습니다."
+			} else {
+				notice = ""
+			}
+		case "resolveSyncConflicts":
+			notice = "선택한 변경을 동기화했습니다."
 		case "accountSignup", "accountVerify", "accountLogin", "accountSync", "accountPurge", "accountPurgeUnrecoverable", "accountLogout", "accountRequestReset", "accountReset", "previewContext":
 			// The account screens set the next step in acceptAccountReply.
 		case "restore", "recover":
@@ -463,11 +488,11 @@ func finish(r reply) {
 		case "create", "unlock":
 			notice = ""
 		case "addPreference":
-			notice = "승인한 기억을 저장했습니다."
+			notice = "승인한 기억을 이 기기에 저장했습니다."
 			put(value, "")
 			selectIndex(key, 0)
 		case "addProject":
-			notice = "프로젝트를 만들었습니다."
+			notice = "프로젝트를 이 기기에 저장했습니다."
 			put(newProject, "")
 		case "approve":
 			notice = "읽기를 승인했습니다. 서비스 화면으로 돌아가 인증을 마치세요."
@@ -491,6 +516,7 @@ func finish(r reply) {
 	}
 }
 func clearPrivate() {
+	discardReview()
 	clearAccountPrivate()
 	for _, id := range []int{password, repeat, newProject, key, value, requestDetails, endpoint, recoveryPassword, backupSelected, recoverySelected} {
 		put(id, "")
@@ -527,7 +553,7 @@ func handleAction(id, notification int) {
 	actionGeneration = uiGeneration
 	inModal = true
 	defer func() { inModal = false }()
-	if accountAction(id) {
+	if conflictAction(id) || accountAction(id) {
 		return
 	}
 	switch id {

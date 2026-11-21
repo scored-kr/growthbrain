@@ -31,6 +31,10 @@ const request = z.discriminatedUnion('op', [
   op('accountPurgeUnrecoverable').extend({email:z.string().email().max(254),password,totpCode,confirmation:z.literal('ERASE UNRECOVERABLE MEMORY')}),
   op('accountPurge').extend({password,totpCode,confirmation:z.literal('DELETE ACCOUNT MEMORY')}),
   op('accountSync'),op('accountLogout'),op('accountSuspend'),op('accountResume'),
+  op('reviewSyncConflicts').extend({offset:z.number().int().min(0).max(9999).optional(),token:identifier.optional()}),
+  op('resolveSyncConflicts').extend({
+    token:identifier, decisions:z.string().regex(/^[LR]{1,10000}$/),
+  }),
   op('previewContext').extend({projectId:identifier.nullable()}),
   op('status'), op('create').extend({ password }), op('unlock').extend({ password }), op('lock'),
   op('addProject').extend({ name: z.string().trim().min(1).max(200) }),
@@ -51,7 +55,7 @@ const request = z.discriminatedUnion('op', [
 const routeErrors = new Set(['ROUTE_UNAVAILABLE', 'ROUTE_OFFLINE', 'ROUTE_CERTIFICATE', 'ROUTE_POLICY_BLOCKED', 'ROUTE_CANCELLED','ROUTE_ENROLLMENT_UNAVAILABLE','ROUTE_ENROLLMENT_LIMIT','ROUTE_AUTH_REQUIRED']);
 const errors = new Set([
   'SYNC_LOCAL_CACHE_INVALID','SYNC_EPOCH_CHANGED','SYNC_INVALID_REMOTE','SYNC_LOCAL_MISSING','SYNC_PURGED_LOCAL_INCOMPLETE','SYNC_UNCONFIGURED','SYNC_CONFLICT','SYNC_ROLLBACK','SYNC_QUOTA','SYNC_REMOTE_MISSING','SYNC_FORBIDDEN','SYNC_PROTOCOL',
-  'SYNC_UNAVAILABLE','SYNC_AUTH_REQUIRED','ACCOUNT_AUTH_FAILED','ACCOUNT_SIGNUP_FAILED','ACCOUNT_EMAIL_UNCONFIRMED',
+  'SYNC_UNAVAILABLE','SYNC_AUTH_REQUIRED','ACCOUNT_NETWORK_UNAVAILABLE','ACCOUNT_AUTH_FAILED','ACCOUNT_SIGNUP_FAILED','ACCOUNT_EMAIL_UNCONFIRMED',
   'ACCOUNT_CODE_INVALID','ACCOUNT_RESET_FAILED','ACCOUNT_SESSION_CHANGED','ACCOUNT_SESSION_EXPIRED','ACCOUNT_IDENTITY_MISMATCH',
   'ACCOUNT_EMAIL_INVALID','ACCOUNT_PASSWORD_WEAK','ACCOUNT_UNCONFIGURED','ACCOUNT_LOGOUT_FAILED','ACCOUNT_VAULT_MISMATCH',
   'ACCOUNT_MFA_REQUIRED','ACCOUNT_MFA_INVALID','ACCOUNT_MFA_UNSUPPORTED','ACCOUNT_RECOVERY_EXPIRED','ACCOUNT_MODE_REQUIRED','ACCOUNT_RECOVERY_REQUIRED','WINDOWS_TRUST_UNAVAILABLE','WINDOWS_TRUST_REQUIRED','TRUSTED_SESSION_INVALID',
@@ -86,6 +90,9 @@ export class DesktopController {
   private trustKey?: Buffer;
   private lastRefreshToken?: string;
   private verifiedAt=0;
+  private authNetworkUnavailable=false;
+  private checking?:Promise<void>;
+  private nextVerification=0;
 
   constructor(private directory: string, private openRoute = openDesktopRoute,
     private services?: {auth: DesktopAccount; remote: RemoteVault; openAccountRoute?:typeof openAccountDesktopRoute}) {}
@@ -104,7 +111,8 @@ export class DesktopController {
       this.replica = await AccountReplica.connect(dirname(this.directory), userId, wrappingKey, remote,startFresh);
       this.vault = this.replica.vault;
       const active = this.replica;
-      this.vault.setAccessGuard(()=> auth.identity()?.userId === userId && active.accessPermitted());
+      const sameOwner = () => auth.identity()?.userId === userId;
+      this.vault.setAccessGuard(()=>sameOwner() && active.accessPermitted(), sameOwner);
       this.verifiedAt=Date.now();
       this.broker = await startBroker(this.vault,join(dirname(this.directory),'active'));
       if (trust) {
@@ -152,16 +160,54 @@ export class DesktopController {
     } finally { auth?.clear(); }
   }
 
-  private async syncAccount() {
-    if (!this.replica) throw Error('ACCOUNT_MODE_REQUIRED');
+  private requireReplica() {
+    const replica = this.replica;
+    if (!replica || this.services?.auth.identity()?.userId !== replica.accountId) throw Error('ACCOUNT_SESSION_EXPIRED');
+    return replica;
+  }
+
+  private async verifyOwner(replica: AccountReplica) {
     const auth=this.requireAccount().auth;
     try {
       const user=await auth.requireVerifiedUser();
-      if(user.userId!==this.replica.accountId) throw Error('ACCOUNT_IDENTITY_MISMATCH');
+      if (this.replica !== replica) throw Error('ACCOUNT_SESSION_CHANGED');
+      if (user.userId !== replica.accountId) throw Error('ACCOUNT_IDENTITY_MISMATCH');
+      this.authNetworkUnavailable=false;
       this.verifiedAt=Date.now();
-    } catch(e) { this.accountError='ACCOUNT_SESSION_EXPIRED'; await this.signOut(false,false); throw e; }
-    try { await this.replica.sync(); }
-    finally { await this.refreshTrust(); }
+    } catch (error) {
+      if (this.replica !== replica) throw error;
+      if (error instanceof Error && error.message === 'ACCOUNT_NETWORK_UNAVAILABLE' &&
+          auth.identity()?.userId === replica.accountId) {
+        // Already verified, still valid, same account. Local encrypted writes
+        // remain available. A new login or an expired token cannot take this path.
+        this.authNetworkUnavailable=true;
+      } else {
+        this.accountError='ACCOUNT_SESSION_EXPIRED';
+        await this.signOut(false,false);
+      }
+      throw error;
+    }
+  }
+
+  private async syncAccount() {
+    const replica=this.requireReplica();
+    await this.verifyOwner(replica);
+    await replica.sync();
+    if (this.replica !== replica) throw Error('ACCOUNT_SESSION_CHANGED');
+    // A previous background push may have sampled the vault before the latest
+    // write. The explicit sync action waits for that write's turn as well.
+    if (replica.status().sync==='pending') await replica.sync();
+    await this.refreshTrust();
+  }
+
+  private checkOwnerInBackground() {
+    const replica=this.replica;
+    if (!replica || this.checking || Date.now()<this.nextVerification || Date.now()-this.verifiedAt<60000) return;
+    this.nextVerification=Date.now()+15000;
+    const check=this.verifyOwner(replica).catch(() => {
+      // verifyOwner updates the visible offline or signed-out state.
+    }).finally(()=>{if (this.checking===check) this.checking=undefined;});
+    this.checking=check;
   }
 
   private async vaultExists() {
@@ -262,6 +308,7 @@ export class DesktopController {
   async close(clearAuth = true) {
     const replica = this.replica;
     this.replica=undefined;
+    this.checking=undefined;this.nextVerification=0;this.authNetworkUnavailable=false;
     this.trustKey?.fill(0); this.trustKey=undefined; this.lastRefreshToken=undefined;
     if(clearAuth) this.services?.auth.clear();
     const vault = this.vault, broker = this.broker;
@@ -278,34 +325,36 @@ export class DesktopController {
   }
 
   private async status() {
-    if (this.replica && !this.replica.accessPermitted()) {
-      this.accountError=this.replica.status().error;
-      await this.signOut(true,false);
-    } else if (this.replica && !this.services?.auth.identity()) {
+    if (this.replica && this.services?.auth.identity()?.userId!==this.replica.accountId) {
       await this.signOut(false,false);
       this.accountError='ACCOUNT_SESSION_EXPIRED';
-    } else if (this.replica && Date.now()-this.verifiedAt>60000) {
-      try { await this.syncAccount(); } catch { /* state carries the verification or sync error */ }
+    } else if (this.replica && !this.replica.accessPermitted() && !this.replica.reviewPending()) {
+      this.accountError=this.replica.status().error;
+      await this.signOut(true,false);
+    } else {
+      this.checkOwnerInBackground();
     }
     this.replica?.poll();
     await this.refreshTrust();
-    const route = this.route;
+    const review = this.replica?.reviewPending() ?? false;
+    const route = review ? undefined : this.route;
     let state: WebState = 'off';
-    if (this.attempt) state = 'starting';
-    else if (this.routeError) state = 'unavailable';
+    if (!review && this.attempt) state = 'starting';
+    else if (!review && this.routeError) state = 'unavailable';
     else if (route) state = route.status?.() ?? 'ready';
     const active = state === 'ready' ? route : undefined;
     return {
       account:{configured:!!(this.services?.auth.configured && this.services.auth.contractVerified), signedIn:!!this.replica,
         email:this.services?.auth.identity()?.email ?? null, trusted:!!this.trustKey, version:this.replica?.vault.changeCounter ?? 0,
-        sync:'off', error:this.accountError, bytes:0, quota:0, ...this.replica?.status()},
+        sync:'off', error:this.accountError, bytes:0, quota:0, review, ...this.replica?.status(),
+        ...(this.authNetworkUnavailable && !review ? {sync:'unavailable',error:'ACCOUNT_NETWORK_UNAVAILABLE'} : {})},
       exists: this.vault ? true : await this.vaultExists(),
       unlocked: !!this.vault,
-      projects: this.vault?.listProjects() ?? [],
+      projects: review ? [] : this.vault?.listProjects() ?? [],
       web: {
         state, url: active?.url ?? null,
-        error: this.routeError ?? (state === 'unavailable' ? (route?.error?.() ?? 'ROUTE_OFFLINE') : null),
-        signInUrl: this.attempt?.signInUrl ?? null,
+        error: review ? null : this.routeError ?? (state === 'unavailable' ? (route?.error?.() ?? 'ROUTE_OFFLINE') : null),
+        signInUrl: review ? null : this.attempt?.signInUrl ?? null,
         requests: active?.auth.requests().map(r => ({ ...r, provider: desktopProviderForCallback(r.redirectUri) })) ?? [],
         connections: active?.auth.connections().map(c => ({ ...c, provider: desktopProviderForCallback(c.redirectUri) })) ?? [],
         audit: active?.audit() ?? [],
@@ -338,6 +387,7 @@ export class DesktopController {
     const replyId = inputId.success ? inputId.data.id : null;
     if (!parsed.success) return { id: replyId, ok: false, error: 'INVALID_INPUT' };
     const input = parsed.data;
+    let localSaved=false;
     try {
       if (this.replica && ['backup','issueRecovery','restore','recover'].includes(input.op)) throw Error('ACCOUNT_MODE_REQUIRED');
       switch (input.op) {
@@ -387,11 +437,34 @@ export class DesktopController {
           } finally { await this.signOut(true,true); }
           break;
         }
+        case 'reviewSyncConflicts': {
+          const result=await this.status();
+          const conflict=this.requireReplica().conflictPreview();
+          if (input.token && input.token!==conflict?.token) throw Error('SYNC_CONFLICT');
+          const offset=input.offset ?? 0;
+          if (offset && (!input.token || !conflict || offset>=conflict.items.length)) throw Error('SYNC_CONFLICT');
+          // Large histories may exceed a pipe frame. Every page and the final
+          // ordered choices refer to the same device-local revision token.
+          return {id:input.id,ok:true,result,conflict:conflict?.items.length ? {
+            token:conflict.token,total:conflict.items.length,offset,items:conflict.items.slice(offset,offset+16),
+          } : null};
+        }
+        case 'resolveSyncConflicts': {
+          const replica=this.requireReplica();
+          await this.verifyOwner(replica);
+          const conflict=replica.conflictPreview();
+          if (!conflict || conflict.token!==input.token || conflict.items.length!==input.decisions.length) throw Error('SYNC_CONFLICT');
+          const choices:Record<string,'local'|'remote'>=Object.fromEntries(conflict.items.map((item,i)=>
+            [item.id,input.decisions[i]==='L' ? 'local' : 'remote']));
+          await replica.resolveConflict(conflict.token,choices);
+          break;
+        }
         case 'previewContext': {
+          const result=await this.status();
           const context = this.requireVault().getContext({projectId:input.projectId??undefined},input.projectId===null);
           const preview={conditions:context.conditions.map(({key,value})=>({key,value})),
             handoff:context.handoff.status === 'current' ? context.handoff.record : null};
-          return {id:input.id,ok:true,result:await this.status(),preview};
+          return {id:input.id,ok:true,result,preview};
         }
         case 'status': break;
         case 'create': case 'unlock': await this.openVault(input.password, input.op === 'create'); break;
@@ -399,8 +472,8 @@ export class DesktopController {
         case 'backup': await this.requireVault().exportBackup(input.file); break;
         case 'issueRecovery': await this.requireVault().issueRecovery(input.password, input.file); break;
         case 'restore': case 'recover': await this.restore(input); break;
-        case 'addProject': await this.requireVault().mutate(e => e.addProject(input.name)); break;
-        case 'addPreference': await this.savePreference(input); break;
+        case 'addProject': await this.requireVault().mutate(e => e.addProject(input.name)); localSaved=true; break;
+        case 'addPreference': await this.savePreference(input); localSaved=true; break;
         case 'startWeb': await this.startWeb(); break;
         case 'stopWeb': await this.stopWeb(); break;
         case 'approve': {
@@ -419,13 +492,14 @@ export class DesktopController {
           this.route.auth.revoke(input.connectionId);
           break;
       }
-      // Local changes remain durable when the remote is unavailable. Report persistence and
-      // remote acknowledgement independently, so the GUI never retries a saved edit blindly.
-      if (this.replica && (input.op==='addProject' || input.op==='addPreference')) {
-        try { await this.syncAccount(); } catch { /* status carries the replica's sync error */ }
+      if (localSaved && this.replica) {
+        // The encrypted local commit has already completed. The network can
+        // be slow or absent; its acknowledgement is reported through status.
+        void this.replica.sync().catch(() => { /* replica.status() carries the outcome */ });
       }
-      return { id: input.id, ok: true, result: await this.status() };
+      return { id:input.id, ok:true, result:await this.status(), ...(localSaved ? {localSaved:true} : {}) };
     } catch (e) {
+      if (localSaved) return {id:input.id,ok:false,localSaved:true,error:'LOCAL_SAVED_STATUS_UNAVAILABLE'};
       if (e instanceof Error && 'code' in e) {
         if (e.code === 'EEXIST' && (input.op === 'backup' || input.op === 'issueRecovery'))
           return { id: input.id, ok: false, error: 'BACKUP_DESTINATION_EXISTS' };

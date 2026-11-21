@@ -172,7 +172,7 @@ func forgetPreview() {
 	put(previewText, "승인된 기억을 확인하고 있습니다.")
 }
 func schedulePreview() {
-	if !known || offline || busy || !s.Unlocked || !s.Account.SignedIn {
+	if !known || offline || busy || !s.Unlocked || !s.Account.SignedIn || s.Account.Review {
 		return
 	}
 	p, _ := chosen(pages)

@@ -83,7 +83,7 @@ jobs:
           & (Join-Path $app node.exe) --test test/windows-storage.test.mjs test/windows-native.test.mjs test/windows-trust.test.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Windows storage or native host check failed' }
           ./test/windows-desktop-smoke.ps1 -App (Join-Path $app GrowthBrain.exe)
-      - name: Restore from another account device and call both HTTPS MCP clients
+      - name: Exercise offline reconciliation and cross-device recall with both HTTPS MCP clients
         shell: pwsh
         run: |
           # Keep the packaged runtime dependencies. Install the SQL fixture dependency
@@ -96,7 +96,7 @@ jobs:
           $null = New-Item -ItemType Directory -Path node_modules/@electric-sql
           Copy-Item -Recurse (Join-Path $fixtureDeps 'node_modules/@electric-sql/pglite') node_modules/@electric-sql/pglite
           $runtime = Join-Path $env:RUNNER_TEMP 'GB-package-smoke/app/node.exe'
-          & $runtime --test test/multi-device-sync.test.mjs
+          & $runtime --test test/account-offline-sync.test.mjs test/desktop-offline.test.mjs test/multi-device-sync.test.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Windows multi-device acceptance failed' }
       - name: Exercise the normal Windows setup dialogs and Start menu entry
         shell: pwsh

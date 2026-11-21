@@ -18,6 +18,8 @@ public static class DesktopSmoke {
   [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr parent,int id);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd);
   [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr hwnd);
+  [DllImport("user32.dll")] public static extern IntPtr GetLastActivePopup(IntPtr owner);
+  [DllImport("user32.dll",EntryPoint="PostMessageW")] public static extern bool Post(IntPtr hwnd, uint message, IntPtr w, IntPtr l);
   [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern int GetWindowLong(IntPtr hwnd,int index);
   [DllImport("user32.dll",CharSet=CharSet.Unicode,EntryPoint="SendMessageTimeoutW")]
   private static extern IntPtr SetText(IntPtr hwnd,uint message,IntPtr w,string text,uint flags,uint timeout,out UIntPtr result);
@@ -157,9 +159,36 @@ try {
     if ([DesktopSmoke]::IsWindowVisible((Control 114))) { throw 'Endpoint requested before choosing a service' }
 
     [DesktopSmoke]::Select($window,108,0)
+    [DesktopSmoke]::Select($window,108,1)
+    [DesktopSmoke]::Enter((Ready-Control 121),'OFFLINE-PROJECT')
+    [DesktopSmoke]::Click((Ready-Control 122))
+    $null = Wait-For { if ([DesktopSmoke]::Text((Control 100)) -like '*연결되면 자동 동기화*' -and [DesktopSmoke]::Text((Control 101)) -like '*이 기기에 저장*') { $true } } 'local save receipt with remote sync pending'
+    [DesktopSmoke]::Select($window,108,0)
+    [DesktopSmoke]::Click((Ready-Control 216))
+    $null = Ready-Control 261
+    if ([DesktopSmoke]::IsWindowVisible((Control 218)) -or [DesktopSmoke]::IsWindowVisible((Control 264))) { throw 'Review exposed the regular preview or showed alternatives before inspection' }
+    [DesktopSmoke]::Click((Ready-Control 261))
+    $null = Ready-Control 268
+    if ([DesktopSmoke]::Text((Control 264)) -ne 'LOCAL-format' -or [DesktopSmoke]::Text((Control 266)) -ne 'REMOTE-format') { throw 'Both competing values must be visible' }
+    [DesktopSmoke]::Click((Ready-Control 268))
+    if ([DesktopSmoke]::IsWindowVisible((Control 271))) { throw 'Partial conflict choices cannot be applied' }
+    [DesktopSmoke]::Select($window,262,1)
+    if ([DesktopSmoke]::Text((Control 264)) -ne 'LOCAL-channel') { throw 'Review did not switch to selected item' }
+    [DesktopSmoke]::Click((Ready-Control 267))
+    if (![DesktopSmoke]::Post((Ready-Control 271),0xf5,[IntPtr]::Zero,[IntPtr]::Zero)) { throw 'Could not open final confirmation' }
+    $yes = Wait-For {
+        $popup = [DesktopSmoke]::GetLastActivePopup($window)
+        if ($popup -ne $window -and $popup -ne [IntPtr]::Zero) {
+            $button=[DesktopSmoke]::GetDlgItem($popup,6)
+            if ($button -ne [IntPtr]::Zero -and [DesktopSmoke]::IsWindowVisible($button)) { $button }
+        }
+    } 'explicit final confirmation'
+    [DesktopSmoke]::Click($yes)
+    $null = Ready-Control 216
+    if ([DesktopSmoke]::IsWindowVisible((Control 264)) -or [DesktopSmoke]::Text((Control 264)) -ne '') { throw 'Resolved alternatives still visible or retained in the window' }
     $originalChild = Get-Process -Id ([int](Get-Content -LiteralPath (Join-Path $staging 'child.pid') -Raw))
     [DesktopSmoke]::Click((Ready-Control 216))
-    $null = Wait-For { if ((Get-Content -LiteralPath (Join-Path $staging 'test-operations.txt')) -contains 'accountSync') { $true } } 'in-flight sync'
+    $null = Wait-For { if (@(Get-Content -LiteralPath (Join-Path $staging 'test-operations.txt') | Where-Object { $_ -eq 'accountSync' }).Count -ge 2) { $true } } 'in-flight sync'
     [DesktopSmoke]::NotifySession($process.Id,7)
     if (!$originalChild.WaitForExit(5000)) { throw 'Windows lock left a blocked controller alive' }
     $null = Wait-For { if (![DesktopSmoke]::IsWindowVisible((Control 218))) { $true } } 'private preview removed after OS lock'
@@ -177,7 +206,7 @@ try {
     foreach ($legacyOp in @('create','restore','recover','unlock','startWeb')) {
         if ($ops -contains $legacyOp) { throw "Unexpected setup operation in account flow: $legacyOp" }
     }
-    'Synthetic account UI: login to recalled preferences, scoped review, deferred service choice, lock during stalled sync, trusted resume and logout verified.'
+    'Synthetic account UI: login to recalled preferences, scoped review, offline save, per-item conflict resolution, deferred service choice, lock during stalled sync, trusted resume and logout verified.'
     $passed = $true
     'Packaged native desktop created, locked, reopened and closed a synthetic vault.'
 } finally {
