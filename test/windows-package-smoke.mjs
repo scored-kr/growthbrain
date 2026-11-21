@@ -6,7 +6,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { createInterface } from 'node:readline';
-import { checkPackagedNative } from './windows-native-smoke.mjs';
+import { callPackagedNative, checkPackagedNative } from './windows-native-smoke.mjs';
 
 if (process.platform !== 'win32' || !process.argv[2]) throw Error('Run on Windows with the extracted app directory');
 const app = resolve(process.argv[2]);
@@ -48,6 +48,16 @@ try {
     assert.ok(project.ok);
     const saved = await send('addPreference', { projectId: project.result.projects[0].id, key: 'tone', value: 'Synthetic-private-preference' });
     assert.ok(saved.ok);
+    const projectId = project.result.projects[0].id;
+    for (const [method, field] of [['get_context', 'conditions'], ['search_memory', 'matches']]) {
+      const { result } = await callPackagedNative(app, data, method, { projectId, query: 'tone' });
+      const record = result[field].find(item => item.key === 'tone');
+      assert.equal(record.value, 'Synthetic-private-preference');
+      for (const privateField of ['source', 'reason', 'supersedesId', 'correctionOf']) {
+        assert.equal(Object.hasOwn(record, privateField), false, method + ' exposed ' + privateField);
+      }
+      assert.ok(!JSON.stringify(result).includes('desktop:explicit-entry'));
+    }
     assert.ok((await send('issueRecovery', { file: recoveryFile, password: secret })).ok);
     assert.ok((await send('backup', { file: backupFile })).ok);
     const locked = await send('lock');

@@ -53,7 +53,7 @@ test('handoff stays unapproved and project isolated, requires local review and n
 
 test('handoff replacement, expiry, retirement and small budgets never resurrect or partially relay old completion claims',()=>{
  const {engine,project}=fixture();const first=engine.proposeHandoff(handoff(project.id));engine.reviewHandoff(project.id,first.id,'approve');
- const next=engine.proposeHandoff({...handoff(project.id),goal:'Next stage'});
+ const next=engine.proposeHandoff({...handoff(project.id),goal:'Next stage',blockers:['Pending detailed review. '.repeat(10)]});
  assert.throws(()=>engine.reviewHandoff(project.id,next.id,'approve'),/EXPLICIT_SUPERSESSION_REQUIRED/);
  engine.reviewHandoff(project.id,next.id,'approve',first.id);
  assert.equal(engine.getContext({projectId:project.id}).handoff.record.id,next.id);

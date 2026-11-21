@@ -42,7 +42,13 @@ test('ten independent evaluation answers are grounded in read-only real MCP call
     if(i===5){assert.equal(context.routing.reason,'project_selection_required');assert.deepEqual(found.searchedScopes,['global']);answer='프로젝트 선택 필요';}
     else if(i===3){assert.equal(match,undefined);answer=condition.value;}
     else if(!condition){assert.equal(match,undefined);answer='조회되지 않음';}
-    else {assert.equal(condition.memoryId,match.id);answer=i===9?match.source.reference:match.value;}
+    else if(i===9){
+      assert.equal(condition.memoryId,match.id);
+      assert.equal(condition.value,match.value);
+      assert.ok(!('source' in condition) && !('source' in match));
+      assert.ok(!JSON.stringify([context,found]).includes('synthetic:decision:new'));
+      answer='기기에서만 확인';
+    }else{assert.equal(condition.memoryId,match.id);answer=match.value;}
     if(i===0)assert.deepEqual((await invoke('search_memory',{projectId:context.projectId,query:'옛날할인'})).matches,[]);
     assert.equal(answer,pairs[i][2],pairs[i][1]);
   }

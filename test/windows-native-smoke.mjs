@@ -7,7 +7,7 @@ import { join } from 'node:path';
 
 // Supply exactly the origin Chrome derives from the packaged extension key.
 // Exercise the binary (including its shipped runtime lookup) and native framing.
-export async function checkPackagedNative(app, profile, unlocked) {
+export async function callPackagedNative(app, profile, method, params = {}) {
   const extension = JSON.parse(await readFile(join(app, 'extension', 'manifest.json'), 'utf8'));
   const key = Buffer.from(extension.key, 'base64');
   const digest = createHash('sha256').update(key).digest('hex').slice(0, 32);
@@ -22,7 +22,7 @@ export async function checkPackagedNative(app, profile, unlocked) {
   native.stdout.on('data', chunk => chunks.push(chunk));
   native.stdin.on('error', () => { /* Launcher exit code and frame are checked below. */ });
   try {
-    const message = Buffer.from(JSON.stringify({ id: 'check', method: 'check_vault', params: {} }));
+    const message = Buffer.from(JSON.stringify({ id: 'check', method, params }));
     const header = Buffer.alloc(4);
     header.writeUInt32LE(message.length);
     native.stdin.end(Buffer.concat([header, message]));
@@ -31,8 +31,14 @@ export async function checkPackagedNative(app, profile, unlocked) {
     const frame = Buffer.concat(chunks);
     assert.ok(frame.length >= 4, 'Missing native response');
     assert.equal(frame.readUInt32LE(0), frame.length - 4);
-    assert.deepEqual(JSON.parse(frame.subarray(4)), unlocked
-      ? { id: 'check', result: { unlocked: true } }
-      : { id: 'check', error: 'VAULT_LOCKED' });
+    const response = JSON.parse(frame.subarray(4));
+    assert.equal(response.id, 'check');
+    return response;
   } finally { clearTimeout(timer); }
+}
+
+export async function checkPackagedNative(app, profile, unlocked) {
+  assert.deepEqual(await callPackagedNative(app, profile, 'check_vault'), unlocked
+    ? { id: 'check', result: { unlocked: true } }
+    : { id: 'check', error: 'VAULT_LOCKED' });
 }

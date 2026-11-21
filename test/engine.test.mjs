@@ -87,7 +87,8 @@ test('follow-up search preserves current request overrides without storing them 
   approve(engine,proposal({type:'global'},'tone','friendly'));
   approve(engine,proposal(scope,'tone','formal'));
   approve(engine,proposal(scope,'cta','consultation'));
-  approve(engine,proposal(scope,'brand','unbudgeted-brand',{reason:'Synthetic provenance '.repeat(40)}));
+  const longBrand='unbudgeted-brand'.repeat(40);
+  approve(engine,proposal(scope,'brand',longBrand));
   approve(engine,proposal({type:'project',projectId:other.id},'brand','other-project-brand'));
   engine.propose(proposal(scope,'pending','pending-brand'));
   const before=engine.snapshot();
@@ -99,7 +100,7 @@ test('follow-up search preserves current request overrides without storing them 
   assert.deepEqual(engine.search(project.id,'consultation',20,requestConditions).matches,[]);
   assert.deepEqual(engine.search(project.id,'session only',20,requestConditions).matches,[]);
   const found=engine.search(project.id,'brand',20,requestConditions);
-  assert.deepEqual(found.matches.map(m=>m.value),['unbudgeted-brand']);
+  assert.deepEqual(found.matches.map(m=>m.value),[longBrand]);
   assert.equal(found.omittedCount,0);
   assert.deepEqual(engine.snapshot(),before);
   assert.equal(engine.search(project.id,'formal').matches.length,1);

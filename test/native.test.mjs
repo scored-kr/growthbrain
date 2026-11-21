@@ -6,16 +6,14 @@ import { mkdtemp,rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join,resolve } from 'node:path';
 import { VaultSession } from '../dist/vault.js';
+import { fixture, proposal, approve } from './helpers.mjs';
 import { startBroker } from '../dist/broker.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
-test('real native frames collect and review only with explicit site consent; origin and methods are restricted',async()=>{
-  const directory=await mkdtemp(join(tmpdir(),'gb-native-'));const id='a'.repeat(32);
-  const vault=await VaultSession.open(directory,randomUUID(),randomBytes(24).toString('base64url'),true);
-  const project=await vault.mutate(e=>e.addProject('Synthetic native project'));const broker=await startBroker(vault,directory);
-  async function call(method,params,origin=`chrome-extension://${id}/`){
-    const child=spawn(process.execPath,[resolve('dist/native-host.js'),origin],{env:{GROWTH_BRAIN_EXTENSION_ID:id,GROWTH_BRAIN_SOCKET:broker.path},stdio:['pipe','pipe','pipe']});
+function nativeCaller(socket,id){
+  return async function call(method,params,origin=`chrome-extension://${id}/`){
+    const child=spawn(process.execPath,[resolve('dist/native-host.js'),origin],{env:{GROWTH_BRAIN_EXTENSION_ID:id,GROWTH_BRAIN_SOCKET:socket},stdio:['pipe','pipe','pipe']});
     const payload=Buffer.from(JSON.stringify({id:randomUUID(),method,params})),header=Buffer.alloc(4);header.writeUInt32LE(payload.length);
     let output=Buffer.alloc(0);child.stdout.on('data',c=>output=Buffer.concat([output,c]));
     child.stdin.on('error',()=>{});
@@ -25,6 +23,13 @@ test('real native frames collect and review only with explicit site consent; ori
     if(code!==0)return{code};assert.equal(output.length,output.readUInt32LE()+4);
     return JSON.parse(output.subarray(4).toString());
   }
+}
+
+test('real native frames collect and review only with explicit site consent; origin and methods are restricted',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'gb-native-'));const id='a'.repeat(32);
+  const vault=await VaultSession.open(directory,randomUUID(),randomBytes(24).toString('base64url'),true);
+  const project=await vault.mutate(e=>e.addProject('Synthetic native project'));const broker=await startBroker(vault,directory);
+  const call=nativeCaller(broker.path,id);
   try {
     assert.equal((await call('list_projects',{})).result.projects[0].id,project.id);
     assert.equal((await call('list_projects',{},'chrome-extension://'+'b'.repeat(32)+'/')).code,1);
@@ -51,7 +56,8 @@ test('real native frames collect and review only with explicit site consent; ori
       const result=await client.callTool({name:'get_context',arguments:{projectId:project.id}});
       assert.ok(!result.isError);
       const context=JSON.parse(result.content[0].text);assert.equal(context.conditions[0].value,'English');
-      assert.equal(context.conditions[0].supersedesId,capture.candidateIds[0]);
+      assert.equal(context.conditions[0].memoryId,corrected.id);
+      assert.ok(!JSON.stringify(context).includes(capture.candidateIds[0]));
       const retired=(await call('retire_memory',{projectId:project.id,id:corrected.id,reason:'Language constraint no longer applies'})).result;
       assert.equal(retired.status,'retired');
       const after=await client.callTool({name:'get_context',arguments:{projectId:project.id}});
@@ -65,4 +71,34 @@ test('real native frames collect and review only with explicit site consent; ori
     assert.deepEqual(vault.getContext({projectId:project.id}).conditions,[]);
     await vault.close();assert.equal((await call('list_projects',{})).error,'VAULT_LOCKED');
   }finally{await broker.close();await vault.close();await rm(directory,{recursive:true,force:true});}
+});
+
+test('native preview and search reject old broker payloads that included private provenance', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'gb-native-version-'));
+  const { engine, project } = fixture();
+  const scope = { type: 'project', projectId: project.id };
+  approve(engine, proposal(scope, 'tone', 'concise'));
+
+  const legacySource = { kind: 'user', reference: 'private-local-reference', excerpt: 'private-original' };
+  const context = engine.getContext({projectId: project.id});
+  const search = engine.search(project.id, 'concise');
+  let legacy = true;
+  const broker = await startBroker({
+    getContext: () => legacy
+      ? {...context, conditions: context.conditions.map(c => ({...c, source: legacySource}))} : context,
+    search: () => legacy
+      ? {...search, matches: search.matches.map(m => ({...m, source: legacySource}))} : search,
+  }, directory);
+  t.after(async () => { await broker.close(); await rm(directory, {recursive:true, force:true}); });
+  const call = nativeCaller(broker.path, 'a'.repeat(32));
+  const query = {projectId:project.id, query:'concise'};
+  for (const method of ['get_context', 'search_memory']) {
+    const response = await call(method, query);
+    assert.equal(response.error, 'INVALID_RESPONSE');
+    assert.equal(response.result, undefined);
+    assert.ok(!JSON.stringify(response).includes('private-'));
+  }
+  legacy = false;
+  assert.deepEqual((await call('get_context', query)).result, context);
+  assert.deepEqual((await call('search_memory', query)).result, search);
 });

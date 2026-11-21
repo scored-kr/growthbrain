@@ -8,5 +8,5 @@
   <qa_pair><question>오로라작업의 비용 조건을 확인한다. 공통 맥락을 거친 뒤 선택 프로젝트의 예산을 검색하고 다른 프로젝트의 값과 혼합하지 말라. 유효 budget 값만 답하라.</question><answer>오백만원</answer></qa_pair>
   <qa_pair><question>오로라작업에 미승인제안이라는 후보가 있다. 현재 맥락과 검색 모두에서 확인했을 때 작업 조건으로 쓸 수 있는가? 없으면 조회되지 않음으로 답하라.</question><answer>조회되지 않음</answer></qa_pair>
   <qa_pair><question>오로라작업에서 사용 중지한 종료된사항을 다시 요구했다. 현재 맥락과 검색을 확인하고 사용할 수 없으면 조회되지 않음으로 답하라.</question><answer>조회되지 않음</answer></qa_pair>
-  <qa_pair><question>오로라작업의 과거 할인이 아닌 최신 혜택을 사용해야 한다. 맥락과 검색의 최신 offer가 일치함을 확인하고 그 결정의 source.reference만 답하라.</question><answer>synthetic:decision:new</answer></qa_pair>
+  <qa_pair><question>오로라작업의 과거 할인이 아닌 최신 혜택을 사용해야 한다. 맥락과 검색의 최신 offer가 일치함을 확인하고 원래 출처를 AI가 읽을 수 있는지 답하라.</question><answer>기기에서만 확인</answer></qa_pair>
 </evaluation>

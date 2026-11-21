@@ -2,6 +2,12 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { callBroker, safeError } from './broker.js';
+import { contextOutputSchema, searchOutputSchema } from './mcp-contract.js';
+
+const recallSchemas = new Map<string, z.ZodType>([
+  ['get_context', contextOutputSchema],
+  ['search_memory', searchOutputSchema],
+]);
 
 const id=process.env.GROWTH_BRAIN_EXTENSION_ID;
 if(!id || !/^[a-p]{32}$/.test(id) || process.argv[2]!==`chrome-extension://${id}/`)process.exit(1);
@@ -24,7 +30,17 @@ process.stdin.on('data',chunk=>{
     queue=queue.then(async()=>{
       let parsed:z.infer<typeof request>;
       try{parsed=request.parse(JSON.parse(message));}catch{reply({id:null,error:'INVALID_REQUEST'});return;}
-      try{reply({id:parsed.id,result:await callBroker(path,parsed.method,parsed.params)});}
+      try {
+        let result = await callBroker(path, parsed.method, parsed.params);
+        const schema = recallSchemas.get(parsed.method);
+        if (schema) {
+          // A running broker can be older than this host. Reject obsolete disclosure formats.
+          const checked = schema.safeParse(result);
+          if (!checked.success) throw new Error('INVALID_RESPONSE');
+          result = checked.data;
+        }
+        reply({id: parsed.id, result});
+      }
       catch(e){reply({id:parsed.id,error:safeError(e)});}
     });
   }

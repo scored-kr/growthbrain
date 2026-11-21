@@ -54,7 +54,8 @@ test('ranked index handles labels, normalization and limited Korean particles wi
   for(const query of ['즉시구매','obsolete_purchase','외부프로젝트특급비밀'])assert.deepEqual(engine.search(project.id,query).matches,[]);
   const found=engine.search(project.id,'무료 상담');
   assert.ok(found.matches[0].score>0);assert.deepEqual(found.matches[0].matchedTerms,['무료','상담']);
-  assert.ok(found.matches[0].source.excerpt.includes('즉시구매'));
+  assert.ok(!JSON.stringify(found).includes('즉시구매'));
+  assert.match(engine.snapshot().memories.find(m=>m.id===cta).source.excerpt,/즉시구매/);
   // Narrow topic assistance is explicit evidence, not invented semantic confidence.
   assert.equal(engine.search(project.id,'돈을 얼마나 써도 돼').matches[0].key,'budget');
   assert.deepEqual(engine.search(project.id,'돈을 얼마나 써도 돼').matches[0].matchedTopics,['budget']);
@@ -70,9 +71,10 @@ test('cached indexes invalidate on approval, supersession and retirement; reject
   assert.equal(engine.search(project.id,'이전약속').matches.length,1);
   assert.deepEqual(fork.search(project.id,'이전약속').matches,[]);
   engine.review(pending.id,'approve');assert.equal(engine.search(project.id,'새로운약속').matches.length,1);
-  const result=engine.getContext({projectId:project.id});result.conditions[0].source.excerpt='mutated';
+  const result=engine.getContext({projectId:project.id});result.conditions[0].value='mutated';
   const search=engine.search(project.id,'새로운약속');search.matches[0].scope.projectId=randomUUID();
-  assert.notEqual(engine.getContext({projectId:project.id}).conditions[0].source.excerpt,'mutated');
+  assert.equal(engine.getContext({projectId:project.id}).conditions[0].value,'새로운약속');
+  assert.equal(engine.search(project.id,'새로운약속').matches[0].scope.projectId,project.id);
   engine.retireMemory(project.id,pending.id,'종료');
   assert.deepEqual(engine.search(project.id,'약속').matches,[]);
   assert.deepEqual(engine.getContext({projectId:project.id}).conditions,[]);
@@ -85,10 +87,10 @@ test('vault cached queries stay detached, survive rollback/reopen and leave no p
   const project=await vault.mutate(e=>e.addProject('INDEX_PRIVATE_PROJECT'));
   const id=await vault.mutate(e=>{e.configureProjectTriggers(project.id,['INDEX_PRIVATE_TRIGGER']);return approve(e,proposal({type:'project',projectId:project.id},'tone','INDEX_PRIVATE_VALUE'));});
   assert.equal(vault.getContext({query:'INDEX_PRIVATE_TRIGGER'}).projectId,project.id);
-  const found=vault.search(project.id,'INDEX_PRIVATE_VALUE');found.matches[0].source.excerpt='changed';
+  const found=vault.search(project.id,'INDEX_PRIVATE_VALUE');found.matches[0].value='changed';
   await assert.rejects(vault.mutate(e=>{e.retireMemory(project.id,id,'rollback');throw Error('abort');}),/abort/);
   assert.equal(vault.search(project.id,'INDEX_PRIVATE_VALUE').matches.length,1);
-  assert.notEqual(vault.getContext({projectId:project.id}).conditions[0].source.excerpt,'changed');
+  assert.equal(vault.getContext({projectId:project.id}).conditions[0].value,'INDEX_PRIVATE_VALUE');
   for(const file of await readdir(directory))assert.ok(!(await readFile(join(directory,file),'utf8')).includes('INDEX_PRIVATE'));
   await vault.close();assert.throws(()=>vault.search(project.id,'INDEX_PRIVATE_VALUE'),/VAULT_LOCKED/);
   vault=await VaultSession.open(directory,owner,password);

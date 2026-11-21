@@ -73,7 +73,19 @@ test('actual HTTPS OAuth and MCP protect common/project scopes, write boundary, 
  execFileSync('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-days','1','-keyout',key,'-out',cert,'-subj','/CN=localhost','-addext','subjectAltName=DNS:localhost'],{stdio:'ignore'});await chmod(key,0o600);
  const probe=createServer();await new Promise(r=>probe.listen(0,'127.0.0.1',r));const port=probe.address().port;await new Promise(r=>probe.close(r));
  const origin=`https://localhost:${port}`,ca=await readFile(cert),vault=await VaultSession.open(join(root,'vault'),randomUUID(),random(),true);
- const [project,other]=await vault.mutate(e=>{const p=e.addProject('PRIVATE_PROJECT'),o=e.addProject('OTHER_PRIVATE_PROJECT');approve(e,proposal({type:'global'},'language','한국어'));approve(e,proposal({type:'project',projectId:p.id},'tone','PRIVATE_TONE'));approve(e,proposal({type:'project',projectId:o.id},'tone','OTHER_PRIVATE_TONE'));e.configureProjectTriggers(o.id,['other-trigger']);return [p,o]});
+ const privateName='Synthetic Morgan';
+ const {project,other,originalId}=await vault.mutate(e=>{
+  const project=e.addProject('PRIVATE_PROJECT'),other=e.addProject('OTHER_PRIVATE_PROJECT');
+  approve(e,proposal({type:'global'},'language','한국어'));
+  const tone=e.propose(proposal({type:'project',projectId:project.id},'tone',`PRIVATE_TONE for ${privateName}`,{
+   source:{kind:'user',reference:`internal:review:${privateName}`,excerpt:`Keep this conversation with ${privateName} local`}
+  }));
+  const corrected=e.correctCandidate(project.id,tone.id,'PRIVATE_TONE',`Remove ${privateName} from the approved preference`);
+  e.review(corrected.id,'approve');
+  approve(e,proposal({type:'project',projectId:other.id},'tone','OTHER_PRIVATE_TONE'));
+  e.configureProjectTriggers(other.id,['other-trigger']);
+  return {project,other,originalId:tone.id};
+ });
  const web=await startWebMcp(vault,{origin,certificateFile:cert,privateKeyFile:key}),clients=[];
  const http=(path,init={})=>new Promise((resolve,reject)=>{
   const url=new URL(path,origin),req=request(url,{hostname:'127.0.0.1',servername:'localhost',ca,method:init.method??'GET',headers:{host:url.host,...Object.fromEntries(new Headers(init.headers))}},res=>{
@@ -114,6 +126,19 @@ test('actual HTTPS OAuth and MCP protect common/project scopes, write boundary, 
   assert.equal((await commonClient.callTool({name:'get_context',arguments:{projectId:project.id}})).isError,true);
   assert.equal((await commonClient.callTool({name:'propose_memory',arguments:{}})).isError,true);
   const selected=await login(project.id),projectClient=await mcp(selected.access_token);
+  for(const name of ['get_context','search_memory']){
+   const result=await projectClient.callTool({name,arguments:name==='search_memory'?{query:'어조'}:{}});
+   assert.ok(!result.isError);
+   const text=JSON.parse(result.content[0].text);
+   assert.deepEqual(result.structuredContent,text);
+   const records=name==='get_context'?text.conditions:text.matches;
+   assert.equal(records.find(m=>m.key==='tone').value,'PRIVATE_TONE');
+   for(const payload of [result.content[0].text,JSON.stringify(result.structuredContent)]){
+    for(const hidden of [privateName,originalId,'OTHER_PRIVATE_TONE']){
+     assert.ok(!payload.includes(hidden),'Authorized web recall exposed conversation data outside the approved preference');
+    }
+   }
+  }
   const context=JSON.parse((await projectClient.callTool({name:'get_context',arguments:{requestConditions:{tone:'current_override'}}})).content[0].text);
   assert.equal(context.projectId,project.id);assert.equal(context.conditions.find(c=>c.key==='tone').value,'current_override');assert.ok(!JSON.stringify(context).includes('OTHER_PRIVATE'));
   assert.equal((await projectClient.callTool({name:'get_context',arguments:{projectId:other.id}})).isError,true);

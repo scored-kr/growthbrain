@@ -17,14 +17,20 @@ test('real stdio MCP transport retrieves scoped memory, records candidates, deni
   const vault=await VaultSession.open(directory,owner,password,true);
   const project=await vault.mutate(e=>e.addProject('Synthetic marketer campaign'));
   const other=await vault.mutate(e=>e.addProject('Other customer'));
-  await vault.mutate(e=>{
+  const privateName='Synthetic Rowan';
+  const budgetSource={kind:'user',reference:`synthetic:private-review:${privateName}`,excerpt:`Budget for ${privateName} in the original transcript`};
+  const budgetReason=`Removed customer name ${privateName} during review`;
+  const {originalId,correctedId}=await vault.mutate(e=>{
     approve(e,proposal({type:'global'},'language','한국어'));
     approve(e,proposal({type:'global'},'tone','친근하게'));
     const old=approve(e,proposal({type:'project',projectId:project.id},'cta','지금 구매'));
     approve(e,proposal({type:'project',projectId:project.id},'cta','무료 상담',{supersedesId:old}));
     approve(e,proposal({type:'project',projectId:project.id},'tone','과장 없는 전문적인 어조'));
-    approve(e,proposal({type:'project',projectId:project.id},'budget','월 50만원 이하'));
+    const budget=e.propose(proposal({type:'project',projectId:project.id},'budget',`${privateName}: 월 50만원 이하`,{source:budgetSource}));
+    const corrected=e.correctCandidate(project.id,budget.id,'월 50만원 이하',budgetReason);
+    e.review(corrected.id,'approve');
     approve(e,proposal({type:'project',projectId:other.id},'secret','OTHER_PROJECT_SECRET'));
+    return {originalId:budget.id,correctedId:corrected.id};
   });
   const broker=await startBroker(vault,directory);
   const client=new Client({name:'synthetic-protocol-test',version:'1.0.0'});
@@ -60,6 +66,19 @@ test('real stdio MCP transport retrieves scoped memory, records candidates, deni
   assert.equal(topicSearch.value.retrieval,'local-lexical-topic-v2');
   assert.equal(topicSearch.value.matches[0].value,'월 50만원 이하');
   assert.deepEqual(topicSearch.value.matches[0].matchedTopics,['budget']);
+  // The editor can still audit the correction; neither MCP representation sends the private history.
+  const localBudget=vault.read(e=>e.listMemories(project.id,'active').memories.find(m=>m.id===correctedId));
+  assert.deepEqual(localBudget.source,budgetSource);
+  assert.equal(localBudget.reason,budgetReason);
+  assert.equal(localBudget.correctionOf,originalId);
+  assert.equal(first.value.conditions.find(c=>c.key==='budget').value,localBudget.value);
+  for(const response of [first.raw,topicSearch.raw]){
+    for(const payload of [response.content[0].text,JSON.stringify(response.structuredContent)]){
+      for(const hidden of [privateName,budgetSource.reference,budgetReason,originalId]){
+        assert.ok(!payload.includes(hidden),'MCP recall exposed local correction history');
+      }
+    }
+  }
   assert.deepEqual((await invoke('search_memory',{projectId:project.id,query:'얼마까지 쓸 수 있지',requestConditions:{budget:'이번 요청에서 지정한 한도'}})).value.matches,[]);
   assert.deepEqual((await invoke('search_memory',{projectId:project.id,query:'지금 구매'})).value.matches,[]);
   const p=await invoke('propose_memory',proposal({type:'project',projectId:project.id},'style','CANDIDATE_ONLY',{source:{kind:'ai',reference:'synthetic:ai',excerpt:'inferred style'}}));
@@ -80,11 +99,17 @@ test('real stdio MCP transport retrieves scoped memory, records candidates, deni
   const aliasConflict=await invoke('get_context',{requestConditions:{tone:'one',response_tone:'two'}});
   assert.equal(aliasConflict.raw.isError,true);assert.equal(aliasConflict.value.error,'AMBIGUOUS_REQUEST_CONDITIONS');
   assert.match(aliasConflict.value.nextAction,/Ask which value/);
-  const h=await invoke('propose_handoff',{projectId:project.id,goal:'PRIVATE_HANDOFF_GOAL',completed:[{claim:'Draft completed',evidence:'Synthetic review reference'}],blockers:[],nextActions:['Write the next draft using current conditions'],observedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+86400000).toISOString(),source:{kind:'ai',reference:'synthetic:handoff',excerpt:'Claim requires review'}});
+  const handoffSource={kind:'ai',reference:'synthetic:private-handoff-source',excerpt:'PRIVATE_HANDOFF_TRANSCRIPT'};
+  const h=await invoke('propose_handoff',{projectId:project.id,goal:'PRIVATE_HANDOFF_GOAL',completed:[{claim:'Draft completed',evidence:'Synthetic review reference'}],blockers:[],nextActions:['Write the next draft using current conditions'],observedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+86400000).toISOString(),source:handoffSource});
   assert.equal(h.value.status,'candidate');assert.equal((await invoke('get_context',{projectId:project.id})).value.handoff.status,'none');
   const cannotReview=await client.callTool({name:'review_handoff',arguments:{projectId:project.id,id:h.value.id,decision:'approve'}});assert.equal(cannotReview.isError,true);
   await vault.mutate(e=>e.reviewHandoff(project.id,h.value.id,'approve'));
   const recalled=await invoke('get_context',{projectId:project.id});assert.equal(recalled.value.handoff.record.id,h.value.id);assert.equal(recalled.value.handoff.verification,'user_reviewed_claims_not_independently_verified');
+  assert.deepEqual(recalled.value.handoff.record.completed,[{claim:'Draft completed',evidence:'Synthetic review reference'}]);
+  for(const hidden of [handoffSource.reference,handoffSource.excerpt]){
+    assert.ok(!JSON.stringify(recalled.raw).includes(hidden));
+  }
+  assert.deepEqual(vault.read(e=>e.listHandoffs(project.id).handoffs[0].source),handoffSource);
   const encrypted=await readFile(join(directory,'vault.json'),'utf8');assert.ok(!encrypted.includes('PRIVATE_HANDOFF_GOAL'));
   const persisted=await readFile(join(directory,'vault.json'),'utf8');
   const requestConditions={tone:'이번에는 짧게',cta:'이번에는 안내만'};

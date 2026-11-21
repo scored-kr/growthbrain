@@ -7,6 +7,8 @@ import {randomUUID,randomBytes} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {resolve,join} from 'node:path';
 import {spawn} from 'node:child_process';
+import {Client} from '@modelcontextprotocol/sdk/client/index.js';
+import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import {VaultSession} from '../dist/vault.js';
 import {startBroker} from '../dist/broker.js';
 import {proposal,approve} from './helpers.mjs';
@@ -14,20 +16,34 @@ const root=await mkdtemp(join(tmpdir(),'gb-app-ui-')),vault=await VaultSession.o
 const project=await vault.mutate(e=>e.addProject('첫 프로젝트')),other=await vault.mutate(e=>e.addProject('다른 프로젝트'));
 const first=await vault.mutate(e=>approve(e,proposal({type:'project',projectId:project.id},'tone','기존 어조')));
 await vault.mutate(e=>approve(e,proposal({type:'project',projectId:other.id},'other','OTHER_PROJECT_SECRET')));
-const candidate=await vault.mutate(e=>e.propose(proposal({type:'project',projectId:project.id},'tone','<img src=x onerror="window.injected=true"> 새 어조')));
+const privateMarkers=['PRIVATE_MEMORY_REFERENCE','PRIVATE_MEMORY_EXCERPT','PRIVATE_MEMORY_REASON','PRIVATE_HANDOFF_REFERENCE','PRIVATE_HANDOFF_EXCERPT'];
+const candidate=await vault.mutate(e=>e.propose(proposal({type:'project',projectId:project.id},'tone','<img src=x onerror="window.injected=true"> 새 어조',{source:{kind:'user',reference:privateMarkers[0],excerpt:privateMarkers[1]},reason:privateMarkers[2]})));
 const host=spawn(process.execPath,[resolve('dist/native-host.js'),'chrome-extension://'+'a'.repeat(32)+'/'],{env:{...process.env,GROWTH_BRAIN_EXTENSION_ID:'a'.repeat(32),GROWTH_BRAIN_SOCKET:broker.path},stdio:['pipe','pipe','pipe']});
 let buffer=Buffer.alloc(0),nativeError='';const pending=new Map();host.stderr.on('data',b=>nativeError+=b);
 host.stdout.on('data',b=>{buffer=Buffer.concat([buffer,b]);while(buffer.length>=4){const n=buffer.readUInt32LE();if(buffer.length<n+4)break;const r=JSON.parse(buffer.subarray(4,n+4));buffer=buffer.subarray(n+4);pending.get(r.id)?.(r);pending.delete(r.id)}});
 const native=(method,params)=>new Promise(resolve=>{const id=randomUUID(),b=Buffer.from(JSON.stringify({id,method,params})),header=Buffer.alloc(4);header.writeUInt32LE(b.length);pending.set(id,resolve);host.stdin.write(Buffer.concat([header,b]))});
 const browser=await chromium.launch({executablePath:process.env.GROWTH_BRAIN_TEST_CHROMIUM??(existsSync('/usr/lib/chromium/chromium')?'/usr/lib/chromium/chromium':undefined),headless:true,args:['--no-sandbox']});
+const mcp=new Client({name:'local-preview-contract-check',version:'1.0.0'});
 const output='/tmp/growthbrain-app-ui';await mkdir(output,{recursive:true});
 try{
+ await mcp.connect(new StdioClientTransport({command:process.execPath,args:[resolve('dist/mcp.js')],env:{GROWTH_BRAIN_SOCKET:broker.path},stderr:'pipe'}));
  const page=await browser.newPage({viewport:{width:1280,height:1000}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.exposeFunction('nativeCall',async m=>{const r=await native(m.method,m.params);return r.error?{ok:false,error:r.error}:{ok:true,result:r.result}});
  await page.route('https://growthbrain.test/**',async route=>{const name=new URL(route.request().url()).pathname.slice(1);if(!['app.html','app.css','app.js'].includes(name))return route.fulfill({status:404,body:''});return route.fulfill({contentType:name.endsWith('.js')?'text/javascript':name.endsWith('.css')?'text/css':'text/html',body:await readFile(resolve('extension',name),'utf8')})});
- await page.addInitScript(({id})=>{window.fixture={saved:{managementProject:id},hold:false};window.chrome={storage:{local:{get:async()=>fixture.saved,set:async v=>Object.assign(fixture.saved,v)}},runtime:{sendMessage:async m=>{const r=await window.nativeCall(m);if(fixture.hold&&m.method==='list_memories'){fixture.hold=false;await new Promise(resolve=>fixture.release=resolve)}return r}}}}, {id:project.id});
+ await page.addInitScript(({id})=>{window.fixture={saved:{managementProject:id},hold:false};window.chrome={storage:{local:{get:async()=>fixture.saved,set:async v=>Object.assign(fixture.saved,v)}},runtime:{sendMessage:async m=>{
+  const r=await window.nativeCall(m);
+  if(m.method==='get_context'&&r.ok&&fixture.previewFault){
+   const fault=fixture.previewFault;fixture.previewFault=null;
+   if(fault==='error')return {ok:false,error:'REQUEST_FAILED'};
+   if(fault==='legacy')r.result.handoff.record.source={kind:'user',reference:'LEGACY_PRIVATE_REFERENCE',excerpt:'LEGACY_PRIVATE_EXCERPT'};
+   if(fault==='legacy-history')r.result.conditions.find(c=>c.origin!=='current_request').correctionOf='LEGACY_PRIVATE_CORRECTION_ID';
+   if(fault==='malformed')r.result.handoff.record.completed=null;
+  }
+  if(fixture.hold&&m.method==='list_memories'){fixture.hold=false;await new Promise(resolve=>fixture.release=resolve)}return r;
+ }}}}, {id:project.id});
  await page.goto('https://growthbrain.test/app.html');await page.getByText('로컬 금고 연결됨.',{exact:true}).waitFor();assert.match(await page.locator('.metrics').textContent(),/확정 기억1.*검토 후보1/);
  await page.getByRole('link',{name:'검토 대기',exact:true}).click();await page.getByRole('button',{name:'검토하기',exact:true}).click();
+ for(const marker of privateMarkers.slice(0,3))assert.ok((await page.locator('#detail-content').textContent()).includes(marker));
  await page.getByRole('button',{name:'선택적 로컬 충돌 분석',exact:true}).click();await page.getByText('로컬 분석이 꺼져 있습니다.',{exact:false}).waitFor();
  assert.equal(await page.locator('img').count(),0);assert.equal(await page.evaluate(()=>window.injected),undefined);
  await page.getByRole('button',{name:'승인',exact:true}).click();await page.getByText('교체 여부를 먼저 확인하세요.',{exact:true}).waitFor();assert.equal(vault.read(e=>e.snapshot().memories.find(m=>m.id===candidate.id).status),'candidate');
@@ -37,7 +53,31 @@ try{
  await page.getByRole('link',{name:'검토 대기',exact:true}).click();await page.getByRole('button',{name:'검토하기',exact:true}).click();await page.getByLabel('수정할 내용').fill('한국어로 간결하게');await page.getByLabel('수정 사유').fill('표현 보완');await page.getByRole('button',{name:'새 후보로 저장',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('dialog').open);const last=vault.read(e=>e.snapshot().memories.at(-1));assert.equal(last.status,'candidate');assert.equal(last.scope.type,'global');
  await page.getByRole('button',{name:'검토하기',exact:true}).click();await page.getByRole('button',{name:'승인',exact:true}).click();await page.getByText('아직 표시할 항목이 없습니다.',{exact:true}).waitFor();
  await page.getByRole('link',{name:'맥락 인계',exact:true}).click();await page.getByRole('button',{name:'새 인계 제안',exact:true}).click();await page.getByLabel('현재 목표',{exact:true}).fill('캠페인 이어가기');await page.getByLabel('완료 주장 (선택)',{exact:true}).fill('초안 작성');await page.getByLabel('완료 주장의 근거').fill('사용자 문서 r2 확인');await page.getByLabel('차단 사유').fill('가격 결정 대기');await page.getByLabel('다음 작업').fill('FAQ 작성');await page.getByRole('button',{name:'검토 후보로 저장',exact:true}).click();await page.getByRole('button',{name:'내용과 근거 보기',exact:true}).click();await page.getByRole('button',{name:'인계 승인',exact:true}).click();await page.getByText('검토와 교체 여부를 확인하세요.',{exact:true}).waitFor();await page.getByLabel('완료 주장과 근거, 다음 작업을 직접 검토했습니다.').check();await page.getByRole('button',{name:'인계 승인',exact:true}).click();await page.getByText('승인됨',{exact:true}).waitFor();
- await page.getByRole('link',{name:'전달 맥락 확인',exact:true}).click();await page.getByLabel('이번 요청에서 바꿀 항목').fill('tone');await page.getByLabel('이번 요청의 값').fill('이번에는 짧게');await page.getByRole('button',{name:'전달할 맥락 확인',exact:true}).click();await page.getByText('tone: 이번에는 짧게 (이번 요청)',{exact:true}).waitFor();assert.match(await page.locator('#content').textContent(),/한국어로 간결하게.*캠페인 이어가기/s);assert.ok(!(await page.locator('#content').textContent()).includes('OTHER_PROJECT_SECRET'));
+ // Keep local review provenance while exercising a distinct, approved public handoff.
+ await vault.mutate(e=>{const prior=e.listHandoffs(project.id).handoffs.find(h=>h.status==='active');const h=e.proposeHandoff({projectId:project.id,goal:prior.goal,completed:prior.completed,blockers:prior.blockers,nextActions:prior.nextActions,observedAt:prior.observedAt,expiresAt:prior.expiresAt,supersedesId:prior.id,source:{kind:'user',reference:privateMarkers[3],excerpt:privateMarkers[4]}});e.reviewHandoff(project.id,h.id,'approve')});
+ await page.getByRole('link',{name:'현황',exact:true}).click();await page.locator('.metrics').waitFor();for(const marker of privateMarkers.slice(3))assert.ok((await page.locator('#content').textContent()).includes(marker));
+ await page.getByRole('link',{name:'전달 맥락 확인',exact:true}).click();
+ const preview=page.locator('#context-preview'),previewButton=page.getByRole('button',{name:'전달할 맥락 확인',exact:true});
+ const comparePreview=async requestConditions=>{
+  await previewButton.click();await page.getByText('로컬 미리보기입니다. AI에는 아직 전달하지 않았습니다.',{exact:true}).waitFor();
+  const actual=JSON.parse(await preview.locator('pre').textContent()),response=await mcp.callTool({name:'get_context',arguments:{projectId:project.id,query:'',requestConditions}});
+  assert.ok(!response.isError);assert.deepEqual(actual,JSON.parse(response.content[0].text));assert.deepEqual(actual,response.structuredContent);
+  const text=await preview.textContent();for(const marker of [...privateMarkers,'OTHER_PROJECT_SECRET'])assert.ok(!text.includes(marker));
+  assert.equal(await preview.getByText('출처와 변경 사유',{exact:true}).count(),0);assert.equal(await preview.locator('img').count(),0);
+  return actual;
+ };
+ const initial=await comparePreview({});assert.equal(initial.conditions.find(c=>c.memoryId===candidate.id).value,'<img src=x onerror="window.injected=true"> 새 어조');
+ await page.getByLabel('이번 요청에서 바꿀 항목').fill('tone');await page.getByLabel('이번 요청의 값').fill('이번에는 짧게');
+ const overridden=await comparePreview({tone:'이번에는 짧게'});assert.deepEqual(overridden.conditions.find(c=>c.key==='tone'),{key:'tone',value:'이번에는 짧게',origin:'current_request'});
+ await page.getByText('tone: 이번에는 짧게 (이번 요청)',{exact:true}).waitFor();assert.match(await preview.textContent(),/한국어로 간결하게.*캠페인 이어가기/s);
+ // Real success is followed by injected transport/version/render failures, each of
+ // which must remove all prior or partially rendered context without exposing data.
+ for(const fault of ['error','legacy','legacy-history','malformed']){
+  await page.evaluate(fault=>fixture.previewFault=fault,fault);await previewButton.click();await page.locator('#status.error').waitFor();
+  assert.equal(await preview.textContent(),'');assert.equal(await preview.locator('pre').count(),0);assert.ok(!(await page.locator('body').textContent()).includes('LEGACY_PRIVATE'));
+  await comparePreview({tone:'이번에는 짧게'});
+ }
+ await preview.getByText('전달할 get_context 응답 전체',{exact:true}).click();
  for(const width of [1280,320]){await page.setViewportSize({width,height:1000});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:join(output,`context-${width}.png`),fullPage:true})}
  // Delayed old-project response cannot put old records into the new selection.
  await page.evaluate(()=>fixture.hold=true);await page.getByRole('link',{name:'확정 기억',exact:true}).click();await page.waitForFunction(()=>typeof fixture.release==='function');await page.selectOption('#project',other.id);await page.getByText('OTHER_PROJECT_SECRET',{exact:true}).first().waitFor();await page.evaluate(()=>fixture.release());assert.ok(!(await page.locator('#content').textContent()).includes('새 어조'));
@@ -45,5 +85,5 @@ try{
  await page.keyboard.press('Control+k');assert.equal(await page.locator('#project').evaluate(n=>n===document.activeElement),true);
  await page.getByRole('link',{name:'AI 연결 안내',exact:true}).click();await page.getByText('ChatGPT와 Claude에서 직접 읽기',{exact:true}).waitFor();await page.screenshot({path:join(output,'connections-320.png'),fullPage:true});
  await vault.close();await page.getByRole('button',{name:'새로고침',exact:true}).click();await page.getByText('금고가 잠겨 있습니다.',{exact:false}).waitFor();assert.equal(await page.locator('#content').textContent(),'');assert.ok(!(await page.locator('body').textContent()).includes('한국어로 간결하게'));
- assert.deepEqual(errors,[]);assert.equal(nativeError,'');console.log(JSON.stringify({kind:'actual Chromium + native framing + broker + synthetic encrypted vault',widths:[1280,320],reviewReplacement:true,correctionPending:true,pins:true,handoffLocalReview:true,contextPreview:true,projectRaceIsolation:true,lockClearsData:true,installedExtensionVerified:false,screenshots:output}));
-}finally{await browser.close();host.stdin.end();host.kill();await broker.close();await vault.close();await rm(root,{recursive:true,force:true})}
+ assert.deepEqual(errors,[]);assert.equal(nativeError,'');console.log(JSON.stringify({kind:'actual Chromium + native framing + stdio MCP + broker + synthetic encrypted vault',widths:[1280,320],reviewReplacement:true,correctionPending:true,pins:true,handoffLocalReview:true,contextPreview:true,previewMatchesMcp:true,localProvenancePreserved:true,previewFailureClearsData:true,injectedPreviewFailures:['transport','legacy-native','legacy-history','malformed-render'],projectRaceIsolation:true,lockClearsData:true,installedExtensionVerified:false,liveModelVerified:false,screenshots:output}));
+}finally{await browser.close();await mcp.close();host.stdin.end();host.kill();await broker.close();await vault.close();await rm(root,{recursive:true,force:true})}

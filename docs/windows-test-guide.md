@@ -2,10 +2,8 @@
 
 이 시험의 목표는 새 ChatGPT 대화와 새 Claude 대화가 각각 기기의 금고에서 승인한 조건을 읽고 실제 답변에 반영하는지 확인하는 것이다. Windows 11 x64 표준 사용자 계정, 로컬 NTFS 사용자 프로필, 인터넷 연결을 사용한다. 시험용 금고에는 아래 예시처럼 가상의 내용만 넣는다.
 
-[검증한 Windows x64 설치 ZIP 받기](https://github.com/scored-kr/growthbrain/actions/runs/44888013210/artifacts/14701170789).
-GitHub 저장소 접근 권한이 있는 계정으로 내려받아 **모두 압축 풀기**를 선택한다. 이 산출물의 보관 기간은 14일이다.
-ZIP 안의 EXE는 커밋 `b149ef1b3a062db0192f3a4c2141d8b3947fde01`으로 만들었다. EXE의 SHA-256은
-`8bc944693e2e093e8758fa6b206d0152140696e2e804c63ab66ab0bbef3a1511`이다.
+[Windows x64 설치 파일 빌드 목록](https://github.com/scored-kr/growthbrain/actions/workflows/windows.yml?query=branch%3Acodex%2Fgrowthbrain-recovery-20261103)에서 안내받은 커밋의 성공한 실행을 연다. GitHub에 로그인한 뒤 **Artifacts → GrowthBrain-Windows-x64-해당 커밋** ZIP을 받아 **모두 압축 풀기**를 선택한다. ZIP에는 설치 파일과 같은 빌드의 체크섬이 들어 있다. 산출물 보관 기간은 14일이다.
+이전 시험본 `b149ef1`은 로컬 출처가 AI 조회에 포함되던 버전이다. 이번 개인정보 검증에는 출처 분리를 적용한 새 설치 파일을 사용한다.
 
 ## 설치와 준비
 
