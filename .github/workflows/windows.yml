@@ -1,0 +1,82 @@
+name: Windows installer and packaged app
+on:
+  push:
+    branches: [codex/growthbrain-recovery-20261103]
+    paths-ignore: ['docs/**', '**/*.md']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: windows-package-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: integrations/windows-route/go.mod
+          cache-dependency-path: '**/go.sum'
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Test TLS passthrough
+        working-directory: integrations/windows-route
+        run: go test -tags=ts_omit_logtail ./...
+      - name: Test installer transactions
+        run: go test ./...
+        working-directory: windows/setup
+      - name: Test desktop state and service link handling
+        working-directory: windows/desktop
+        run: GO111MODULE=off go test
+      - run: npm ci
+      - run: npm run build
+      - run: python3 scripts/build-windows-installer.py --output build/windows/GrowthBrain-Setup-x64.exe
+      - name: Record checksum
+        working-directory: build/windows
+        run: sha256sum GrowthBrain-Setup-x64.exe > SHA256SUMS.txt
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: GrowthBrain-Windows-x64-${{ github.sha }}
+          path: |
+            build/windows/GrowthBrain-Setup-x64.exe
+            build/windows/SHA256SUMS.txt
+          retention-days: 14
+          if-no-files-found: error
+  windows-smoke:
+    needs: package
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: GrowthBrain-Windows-x64-${{ github.sha }}
+          path: build/windows
+      - name: Test current-user native registration and preservation
+        run: go test ./...
+        working-directory: windows/native
+      - name: Install, update, remove and exercise the packaged app
+        shell: pwsh
+        run: |
+          $setup = Resolve-Path build/windows/GrowthBrain-Setup-x64.exe
+          $root = Join-Path $env:RUNNER_TEMP 'GB-package-smoke'
+          $packageCheck = Start-Process $setup -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($packageCheck.ExitCode -ne 0) { throw "Setup lifecycle failed ($($packageCheck.ExitCode))" }
+          $extract = Start-Process $setup -ArgumentList @('--smoke-test', ('"' + $root + '"')) -PassThru -Wait
+          if ($extract.ExitCode -ne 0) { throw "Setup extraction failed ($($extract.ExitCode))" }
+          $app = Join-Path $root app
+          & (Join-Path $app node.exe) test/windows-package-smoke.mjs $app
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged vault smoke failed' }
+          Copy-Item -Recurse (Join-Path $app dist) ./dist
+          Copy-Item -Recurse (Join-Path $app node_modules) ./node_modules
+          & (Join-Path $app node.exe) --test test/windows-storage.test.mjs test/windows-native.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Windows storage or native host check failed' }
+          ./test/windows-desktop-smoke.ps1 -App (Join-Path $app GrowthBrain.exe)
