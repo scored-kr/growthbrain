@@ -80,7 +80,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged vault smoke failed' }
           Copy-Item -Recurse (Join-Path $app dist) ./dist
           Copy-Item -Recurse (Join-Path $app node_modules) ./node_modules
-          & (Join-Path $app node.exe) --test test/windows-storage.test.mjs test/windows-native.test.mjs
+          & (Join-Path $app node.exe) --test test/windows-storage.test.mjs test/windows-native.test.mjs test/windows-trust.test.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Windows storage or native host check failed' }
           ./test/windows-desktop-smoke.ps1 -App (Join-Path $app GrowthBrain.exe)
       - name: Exercise the normal Windows setup dialogs and Start menu entry

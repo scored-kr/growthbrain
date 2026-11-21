@@ -1,5 +1,5 @@
 // The storage engine invokes this private helper for Win32 operations unavailable
-// in Node's fs API. Paths and lock handle numbers are its only inputs/outputs.
+// in Node's fs API. DPAPI operations exchange bytes through private pipes.
 package main
 
 import (
@@ -207,6 +207,9 @@ func sessionHandle(path string, release string) error {
 }
 
 func run(args []string) error {
+	if len(args) == 1 && (args[0] == "protect-session" || args[0] == "unprotect-session") {
+		return protectSession(args[0] == "protect-session", os.Stdin, os.Stdout)
+	}
 	if len(args) < 2 {
 		return invalid
 	}
