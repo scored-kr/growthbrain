@@ -1,5 +1,8 @@
 # Growth Brain
 
+Windows 11 x64 시험 설치 파일의 사용법과 양쪽 웹 채팅 확인 순서는 [Windows 설치·연결 안내](docs/windows-test-guide.md)에 있습니다.
+
+
 사용자의 공통 선호도와 프로젝트 기억을 AI가 직접 조회하는 제품입니다.
 제품의 핵심은 사용자 기기에서 해독·검색하는 **Growth Brain MCP**입니다.
 **ign8t MCP**는 개발 명세와 작업 보드를 관리하며 제품 MCP와 역할이 다릅니다.
