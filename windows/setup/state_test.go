@@ -135,3 +135,37 @@ func TestPreserveOnConflict(t *testing.T) {
 		})
 	}
 }
+
+// Run the real bundled inventory and directory switch on build hosts before distributing a package.
+func TestBundledLifecycle(t *testing.T) {
+	path := os.Getenv("GROWTH_BRAIN_TEST_INSTALLER")
+	if path == "" {
+		t.Skip("no packaged EXE supplied")
+	}
+	z, err := zip.OpenReader(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer z.Close()
+	base := t.TempDir()
+	for range 2 {
+		if err := install(base, &z.Reader); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"GrowthBrain.exe", "NativeHost.exe", "node.exe", "growth-brain-route.exe", "dist/growthbrain-files.exe"} {
+		f, err := os.Open(filepath.Join(base, "app", filepath.FromSlash(name)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var header [2]byte
+		_, err = f.Read(header[:])
+		f.Close()
+		if err != nil || string(header[:]) != "MZ" {
+			t.Fatalf("missing Windows executable: %s", name)
+		}
+	}
+	if err := removeApp(base, func(string) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+}

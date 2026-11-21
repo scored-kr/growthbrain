@@ -37,6 +37,9 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: python3 scripts/build-windows-installer.py --output build/windows/GrowthBrain-Setup-x64.exe
+      - name: Verify the bundled payload and install/update/remove
+        working-directory: windows/setup
+        run: GROWTH_BRAIN_TEST_INSTALLER="$GITHUB_WORKSPACE/build/windows/GrowthBrain-Setup-x64.exe" go test ./...
       - name: Record checksum
         working-directory: build/windows
         run: sha256sum GrowthBrain-Setup-x64.exe > SHA256SUMS.txt
