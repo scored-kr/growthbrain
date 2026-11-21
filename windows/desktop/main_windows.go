@@ -53,6 +53,16 @@ const (
 	chatHelp
 	claudeHelp
 	reconnectHelp
+	initialMode
+	chooseBackup
+	backupSelected
+	chooseRecovery
+	recoverySelected
+	backupHint
+	exportBackup
+	recoveryHint
+	recoveryPassword
+	issueRecovery
 )
 
 var controller *child
@@ -63,7 +73,7 @@ var responses = make(chan reply, 1)
 var notice string
 
 func isCombo(id int) bool {
-	return id == key || id == pages || id == scope || id == requests || id == approvalScope || id == grants
+	return id == initialMode || id == key || id == pages || id == scope || id == requests || id == approvalScope || id == grants
 }
 func createControls() {
 	label := func(id int, t string) { newControl(id, "STATIC", t, 0x80, 0) } // SS_NOPREFIX
@@ -79,7 +89,19 @@ func createControls() {
 	button(openVault, "금고 열기")
 	label(pageLabel, "금고 관리")
 	combo(pages)
-	updateList(pages, []option{{"connect", "서비스 연결"}, {"permissions", "연결 승인·철회"}, {"memories", "기억과 프로젝트"}, {"capture", "대화 수집 (선택)"}}, true)
+	combo(initialMode)
+	updateList(initialMode, []option{{"create", "새 금고 만들기"}, {"restore", "백업과 기존 비밀번호로 복원"}, {"recover", "백업과 복구 파일로 새 비밀번호 설정"}}, true)
+	button(chooseBackup, "암호화 백업 파일 선택")
+	button(chooseRecovery, "복구 파일 선택")
+	edit(backupSelected, 0x80|0x800)
+	edit(recoverySelected, 0x80|0x800)
+	label(backupHint, "암호화 백업은 현재 프로젝트와 기억을 보관합니다. 내 Windows 프로필의 개인 폴더에 새 파일 이름으로 저장하세요. 금고가 없는 새 Windows 프로필에서 복원할 수 있습니다.")
+	button(exportBackup, "암호화 백업 저장")
+	label(recoveryHint, "비밀번호를 잊었을 때 사용할 복구 파일을 발급하려면 현재 금고 비밀번호를 다시 입력하세요. 발급 후 새로운 암호화 백업을 만들어 두 파일을 따로 보관하세요.")
+	edit(recoveryPassword, 0x80|0x20)
+	send.Call(controls[recoveryPassword], 0xc5, 1024, 0)
+	button(issueRecovery, "복구 파일 발급")
+	updateList(pages, []option{{"connect", "서비스 연결"}, {"permissions", "연결 승인·철회"}, {"memories", "기억과 프로젝트"}, {"capture", "대화 수집 (선택)"}, {"backup", "백업·복구 파일"}}, true)
 	button(lock, "금고 잠그기")
 	label(routeLabel, "")
 	button(routeStart, "공개 연결 시작")
@@ -132,7 +154,7 @@ func ids(items ...int) []row {
 			height = 100
 		case requestLabel:
 			height = 54
-		case requestDetails, captureLabel:
+		case requestDetails, captureLabel, backupHint, recoveryHint:
 			height = 116
 		case banner, notices:
 			height = 48
@@ -174,16 +196,31 @@ func render(reset bool) {
 	} else if busy && pending["op"] == "lock" {
 		put(banner, "금고를 잠그고 연결을 종료하고 있습니다.")
 	} else if !s.Unlocked {
+		mode := recoveryMode()
 		label := "금고 만들기"
-		note := "이 기기에 암호화 금고를 만듭니다. 비밀번호를 잊지 않도록 보관하세요."
-		if s.Exists {
+		note := "이 기기의 금고를 만드는 방법을 선택하세요."
+		passwordTitle := "새 금고 비밀번호 (12자 이상)"
+		if !s.Exists {
+			rows = append(rows, recoveryRows(mode)...)
+		}
+		switch mode {
+		case "unlock":
 			label = "금고 잠금 해제"
 			note = "금고가 잠겨 있습니다. 이 기기에서 비밀번호를 입력하세요."
+			passwordTitle = "현재 금고 비밀번호"
+		case "restore":
+			label = "백업 복원"
+			note = "백업을 만들 때의 비밀번호로 금고를 복원합니다."
+			passwordTitle = "백업을 만들 때의 비밀번호"
+		case "recover":
+			label = "새 비밀번호로 복원"
+			note = "해당 복구 파일 발급 후 생성한 백업을 선택하고 새 비밀번호를 정하세요."
 		}
 		put(banner, note)
 		put(openVault, label)
+		put(passwordLabel, passwordTitle)
 		rows = append(rows, ids(passwordLabel, password)...)
-		if !s.Exists {
+		if mode == "create" || mode == "recover" {
 			rows = append(rows, ids(repeatLabel, repeat)...)
 		}
 		rows = append(rows, ids(openVault)...)
@@ -247,6 +284,8 @@ func render(reset bool) {
 				put(grantLabel, "승인한 연결")
 				rows = append(rows, ids(grantLabel, grants, revoke)...)
 			}
+		case "backup":
+			rows = append(rows, ids(backupHint, exportBackup, recoveryHint, recoveryPassword, issueRecovery)...)
 		case "capture":
 			rows = append(rows, ids(captureLabel, capture)...)
 		}
@@ -340,6 +379,14 @@ func finish(r reply) {
 	}
 	if op != "status" {
 		switch op {
+		case "restore", "recover":
+			notice = "복원했습니다. 금고 비밀번호를 입력해 여세요."
+			selectedBackup = ""
+			selectedRecovery = ""
+		case "backup":
+			notice = "암호화 백업을 저장했습니다."
+		case "issueRecovery":
+			notice = "복구 파일을 발급했습니다. 지금 새 암호화 백업을 저장하고 두 파일을 따로 보관하세요."
 		case "create", "unlock":
 			notice = ""
 		case "addPreference":
@@ -369,7 +416,7 @@ func finish(r reply) {
 	}
 }
 func clearPrivate() {
-	for _, id := range []int{password, repeat, newProject, key, value, requestDetails, endpoint} {
+	for _, id := range []int{password, repeat, newProject, key, value, requestDetails, endpoint, recoveryPassword, backupSelected, recoverySelected} {
 		put(id, "")
 	}
 	for _, id := range []int{requests, grants, scope, approvalScope} {
@@ -379,6 +426,11 @@ func clearPrivate() {
 func handleAction(id, notification int) {
 	if isCombo(id) {
 		if notification == 1 {
+			if id == pages || id == initialMode {
+				put(password, "")
+				put(repeat, "")
+				put(recoveryPassword, "")
+			}
 			if id == requests {
 				selectIndex(approvalScope, 0)
 			}
@@ -393,19 +445,23 @@ func handleAction(id, notification int) {
 	defer func() { inModal = false }()
 	switch id {
 	case openVault:
-		pass := textValue(password)
-		if !s.Exists && (len([]rune(pass)) < 12 || textValue(repeat) != pass) {
-			notice = "12자 이상의 비밀번호를 두 칸에 똑같이 입력하세요."
+		openFromForm()
+	case chooseBackup:
+		if p := chooseFile("복원할 암호화 백업 선택", false, false); p != "" {
+			selectedBackup = p
 			render(false)
-			return
 		}
-		put(password, "")
-		put(repeat, "")
-		op := "unlock"
-		if !s.Exists {
-			op = "create"
+	case chooseRecovery:
+		if p := chooseFile("백업과 짝이 맞는 복구 파일 선택", true, false); p != "" {
+			selectedRecovery = p
+			render(false)
 		}
-		dispatch(command{"op": op, "password": pass})
+	case exportBackup:
+		if p := chooseFile("새 암호화 백업 저장", false, true); p != "" {
+			dispatch(command{"op": "backup", "file": p})
+		}
+	case issueRecovery:
+		issueRecoveryFile()
 	case lock:
 		dispatch(command{"op": "lock"})
 	case createProject:

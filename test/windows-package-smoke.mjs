@@ -12,9 +12,11 @@ if (process.platform !== 'win32' || !process.argv[2]) throw Error('Run on Window
 const app = resolve(process.argv[2]);
 const data = await mkdtemp(join(process.env.LOCALAPPDATA, 'GB-package-test-'));
 const secret = randomBytes(32).toString('base64url');
-async function withDevice(action) {
+const backupFile = join(data, 'Backup', 'Example.enc');
+const recoveryFile = join(data, 'Keys', 'Example.recovery');
+async function withDevice(action, profile = data) {
   const child = spawn(join(app, 'node.exe'), [join(app, 'dist', 'desktop-controller.js')], {
-    cwd: app, env: { ...process.env, LOCALAPPDATA: data }, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true,
+    cwd: app, env: { ...process.env, LOCALAPPDATA: profile }, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true,
   });
   const exit = once(child, 'exit');
   const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
@@ -46,6 +48,8 @@ try {
     assert.ok(project.ok);
     const saved = await send('addPreference', { projectId: project.result.projects[0].id, key: 'tone', value: 'Synthetic-private-preference' });
     assert.ok(saved.ok);
+    assert.ok((await send('issueRecovery', { file: recoveryFile, password: secret })).ok);
+    assert.ok((await send('backup', { file: backupFile })).ok);
     const locked = await send('lock');
     assert.equal(locked.result.unlocked, false);
     await checkPackagedNative(app, data, false);
@@ -60,5 +64,15 @@ try {
     assert.ok(reopened.ok, 'Reopen failed: ' + reopened.error);
     assert.equal(reopened.result.projects[0].name, 'Synthetic-package-project');
   });
-  console.log('Packaged Windows runtime created, locked and reopened a synthetic vault after restart.');
+  const fresh = await mkdtemp(join(data, 'New-profile-'));
+  const replacement = randomBytes(32).toString('base64url');
+  await withDevice(async send => {
+    const recovered = await send('recover', { backupFile, recoveryFile, password: replacement });
+    assert.ok(recovered.ok, 'Windows recovery failed: ' + recovered.error);
+    assert.equal(recovered.result.unlocked, false);
+    const reopened = await send('unlock', { password: replacement });
+    assert.ok(reopened.ok);
+    assert.equal(reopened.result.projects[0].name, 'Synthetic-package-project');
+  }, fresh);
+  console.log('Packaged Windows runtime created, locked, reopened and recovered a synthetic vault.');
 } finally { await rm(data, { recursive: true, force: true }); }

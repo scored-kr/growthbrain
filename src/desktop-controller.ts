@@ -15,6 +15,8 @@ import { desktopProviderForCallback } from './web-client.js';
 const id = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const op = <T extends string>(name: T) => z.object({ id, op: z.literal(name) }).strict();
 const password = z.string().min(12).max(1024);
+const selectedFile = z.string().max(32767).refine(p => isAbsolute(p) && !p.includes('\0'));
+const backupOwner = z.object({ ownerId: identifier });
 const request = z.discriminatedUnion('op', [
   op('status'), op('create').extend({ password }), op('unlock').extend({ password }), op('lock'),
   op('addProject').extend({ name: z.string().trim().min(1).max(200) }),
@@ -22,6 +24,10 @@ const request = z.discriminatedUnion('op', [
     projectId: identifier.nullable(), key: proposalSchema.shape.key, value: proposalSchema.shape.value,
     supersedesId: identifier.optional(),
   }),
+  op('backup').extend({ file: selectedFile }),
+  op('issueRecovery').extend({ file: selectedFile, password }),
+  op('restore').extend({ backupFile: selectedFile, password }),
+  op('recover').extend({ backupFile: selectedFile, recoveryFile: selectedFile, password }),
   op('startWeb'), op('stopWeb'),
   op('approve').extend({ requestId: identifier, projectId: identifier.nullable() }),
   op('deny').extend({ requestId: identifier }),
@@ -33,7 +39,9 @@ const errors = new Set([
   'VAULT_LOCKED', 'VAULT_EXISTS', 'VAULT_ALREADY_OPEN_OR_STALE_LOCK', 'VAULT_ALREADY_OPEN', 'VAULT_NOT_FOUND',
   'INVALID_INPUT', 'UNLOCK_FAILED', 'INVALID_VAULT_FILE', 'PASSPHRASE_LENGTH', 'PRIVATE_DIRECTORY_REQUIRED',
   'UNSAFE_WINDOWS_PATH', 'PROJECT_LIMIT', 'PROJECT_NOT_FOUND', 'MEMORY_LIMIT', 'VAULT_SIZE_LIMIT', 'COMMIT_UNCERTAIN', 'STALE_SUPERSESSION',
-  'INVALID_SUPERSESSION', 'MULTIPLE_SUPERSESSIONS_REQUIRED', 'CONNECTION_REQUEST_NOT_FOUND', 'UNSUPPORTED_CALLBACK',
+  'RESTORE_TARGET_EXISTS', 'BACKUP_DESTINATION_EXISTS', 'RESTORE_INPUT_INVALID', 'PRIVATE_FILE_UNAVAILABLE',
+  'INVALID_RECOVERY_FILE', 'KEEP_RECOVERY_SEPARATE', 'RECOVERY_NOT_ENABLED', 'RECOVERY_IN_REPOSITORY',
+  'WINDOWS_PRIVATE_STORAGE_REQUIRED', 'INVALID_SUPERSESSION', 'MULTIPLE_SUPERSESSIONS_REQUIRED', 'CONNECTION_REQUEST_NOT_FOUND', 'UNSUPPORTED_CALLBACK',
   'CONNECTION_LIMIT', 'CONNECTION_NOT_FOUND', 'LOCAL_CONNECTION_UNAVAILABLE', ...routeErrors,
 ]);
 class ReplacementRequired extends Error {
@@ -82,6 +90,26 @@ export class DesktopController {
       throw Error('LOCAL_CONNECTION_UNAVAILABLE');
     }
     this.vault = vault;
+  }
+
+  private async restore(input: Extract<z.infer<typeof request>, { op: 'restore' | 'recover' }>) {
+    // Recovery is only offered on a fresh profile. Preserve even an empty or unrecognized
+    // existing directory. The storage engine also creates this target exclusively at commit.
+    if (this.vault) throw Error('RESTORE_TARGET_EXISTS');
+    try {
+      await lstat(this.directory);
+      throw Error('RESTORE_TARGET_EXISTS');
+    } catch (e) {
+      if (!(e instanceof Error && 'code' in e && e.code === 'ENOENT')) throw e;
+    }
+    const header = backupOwner.safeParse(await readPrivateJSON(input.backupFile, 16 * 1024 * 1024));
+    if (!header.success) throw Error('RESTORE_INPUT_INVALID');
+    const { ownerId } = header.data;
+    const restored = input.op === 'recover'
+      ? await VaultSession.recover(input.backupFile, this.directory, ownerId, input.recoveryFile, input.password)
+      : await VaultSession.restore(input.backupFile, this.directory, ownerId, input.password);
+    // Do not restart capture, IPC, or remote reads until the user explicitly opens the restored vault.
+    await restored.close();
   }
 
   private requireVault() {
@@ -154,7 +182,7 @@ export class DesktopController {
       projects: this.vault?.listProjects() ?? [],
       web: {
         state, url: active?.url ?? null,
-        error: this.routeError ?? (state === 'unavailable' ? 'ROUTE_OFFLINE' : null),
+        error: this.routeError ?? (state === 'unavailable' ? (route?.error?.() ?? 'ROUTE_OFFLINE') : null),
         signInUrl: this.attempt?.signInUrl ?? null,
         requests: active?.auth.requests().map(r => ({ ...r, provider: desktopProviderForCallback(r.redirectUri) })) ?? [],
         connections: active?.auth.connections().map(c => ({ ...c, provider: desktopProviderForCallback(c.redirectUri) })) ?? [],
@@ -193,6 +221,9 @@ export class DesktopController {
         case 'status': break;
         case 'create': case 'unlock': await this.openVault(input.password, input.op === 'create'); break;
         case 'lock': await this.close(); break;
+        case 'backup': await this.requireVault().exportBackup(input.file); break;
+        case 'issueRecovery': await this.requireVault().issueRecovery(input.password, input.file); break;
+        case 'restore': case 'recover': await this.restore(input); break;
         case 'addProject': await this.requireVault().mutate(e => e.addProject(input.name)); break;
         case 'addPreference': await this.savePreference(input); break;
         case 'startWeb': await this.startWeb(); break;
@@ -215,6 +246,14 @@ export class DesktopController {
       }
       return { id: input.id, ok: true, result: await this.status() };
     } catch (e) {
+      if (e instanceof Error && 'code' in e) {
+        if (e.code === 'EEXIST' && (input.op === 'backup' || input.op === 'issueRecovery'))
+          return { id: input.id, ok: false, error: 'BACKUP_DESTINATION_EXISTS' };
+        if (input.op === 'restore' || input.op === 'recover') {
+          if (e.code === 'EEXIST') return { id: input.id, ok: false, error: 'RESTORE_TARGET_EXISTS' };
+          if (e.code === 'ENOENT') return { id: input.id, ok: false, error: 'PRIVATE_FILE_UNAVAILABLE' };
+        }
+      }
       if (e instanceof ReplacementRequired) return { id: input.id, ok: false, error: e.message, previous: e.previous };
       return { id: input.id, ok: false, error: e instanceof Error && errors.has(e.message) ? e.message : 'OPERATION_FAILED' };
     }

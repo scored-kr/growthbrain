@@ -80,7 +80,7 @@ test('desktop cancels pending network sign-in on lock and refuses impersonated p
       },{once:true}));
     }
     auth = new DeviceAuthorization(new URL('https://example.invalid/mcp'),()=>vault.assertUnlocked(),()=>{});
-    return {url:auth.resource.href,auth,audit:()=>[],status:()=> offline ? 'unavailable' : 'ready',close:async()=>auth.close()};
+    return {url:auth.resource.href,auth,audit:()=>[],status:()=> offline ? 'unavailable' : 'ready',error:()=> offline ? 'ROUTE_CERTIFICATE' : null,close:async()=>auth.close()};
   }
   const desktop = new DesktopController(join(home,'vault'),openRoute);
   t.after(async()=>{ try { await desktop.close(); } finally { await rm(home,{recursive:true,force:true}); } });
@@ -115,6 +115,7 @@ test('desktop cancels pending network sign-in on lock and refuses impersonated p
   offline = true; auth.close();
   const lost = (await run('status')).result.web;
   assert.equal(lost.state,'unavailable');
+  assert.equal(lost.error,'ROUTE_CERTIFICATE');
   assert.equal(lost.url,null);
   assert.deepEqual(lost.connections,[]);
   assert.equal((await run('stopWeb')).result.web.state,'off');
@@ -162,4 +163,40 @@ test('after lock/restart an existing web registration can be recreated and requi
   const next = await authenticate();
   assert.notEqual(next.client.client_id,previous.client.client_id);
   await auth.verifyAccessToken(next.tokens.access_token);
+});
+
+test('desktop backup and password-loss recovery preserve the original and restore into fresh profiles only', async t => {
+  const parent = await mkdtemp(join(tmpdir(),'gb-desktop-restore-'));
+  const password = randomBytes(24).toString('base64url'), changed = randomBytes(24).toString('base64url');
+  const source = new DesktopController(join(parent,'original'));
+  const restored = new DesktopController(join(parent,'restored'));
+  const recovered = new DesktopController(join(parent,'recovered'));
+  t.after(async()=>{
+    try { await Promise.all([source.close(),restored.close(),recovered.close()]); }
+    finally { await rm(parent,{force:true,recursive:true}); }
+  });
+  const backupFile = join(parent,'export','synthetic.enc'), recoveryFile = join(parent,'recovery','synthetic.recovery');
+  const run = (client,op,fields={}) => client.handle({id:42,op,...fields});
+  assert.equal((await run(source,'create',{password})).ok,true);
+  const project = (await run(source,'addProject',{name:'SYNTHETIC RESTORE'})).result.projects[0];
+  assert.equal((await run(source,'issueRecovery',{file:recoveryFile,password:changed})).error,'UNLOCK_FAILED');
+  assert.equal((await run(source,'issueRecovery',{file:recoveryFile,password})).ok,true);
+  assert.equal((await run(source,'backup',{file:backupFile})).ok,true);
+  assert.equal((await run(source,'backup',{file:backupFile})).error,'BACKUP_DESTINATION_EXISTS');
+  const originalBytes = await readFile(backupFile);
+  assert.ok(!originalBytes.includes(project.name));
+  await run(source,'lock');
+  assert.equal((await run(source,'restore',{backupFile,password})).error,'RESTORE_TARGET_EXISTS');
+  const regular = await run(restored,'restore',{backupFile,password});
+  assert.equal(regular.result.exists,true);
+  assert.equal(regular.result.unlocked,false);
+  assert.deepEqual((await run(restored,'unlock',{password})).result.projects,[project]);
+  const missingKey = await run(recovered,'recover',{backupFile,password:changed,recoveryFile:recoveryFile+'.missing'});
+  assert.equal(missingKey.error,'INVALID_RECOVERY_FILE');
+  assert.equal((await run(recovered,'status')).result.exists,false);
+  assert.equal((await run(recovered,'recover',{backupFile,recoveryFile,password:changed})).result.unlocked,false);
+  assert.equal((await run(recovered,'unlock',{password})).error,'UNLOCK_FAILED');
+  assert.deepEqual((await run(recovered,'unlock',{password:changed})).result.projects,[project]);
+  assert.deepEqual((await run(source,'unlock',{password})).result.projects,[project]);
+  assert.deepEqual(await readFile(backupFile),originalBytes);
 });

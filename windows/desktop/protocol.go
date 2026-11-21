@@ -88,6 +88,16 @@ func (s state) connectionLabel(c connection) string {
 
 func explain(code string) string {
 	switch code {
+	case "RESTORE_TARGET_EXISTS":
+		return "이 Windows 프로필에 금고 저장 폴더가 이미 있습니다. 기존 금고를 보존하고 금고가 없는 다른 Windows 프로필에서 복원하세요."
+	case "BACKUP_DESTINATION_EXISTS":
+		return "이미 있는 파일입니다. 새 파일 이름을 선택하세요."
+	case "INVALID_RECOVERY_FILE", "RECOVERY_FILE_REQUIRED", "RESTORE_INPUT_INVALID":
+		return "선택한 백업·복구 파일과 비밀번호가 서로 맞는지 확인하세요."
+	case "RECOVERY_NOT_ENABLED":
+		return "이 백업에는 복구 파일이 설정되어 있지 않습니다. 원래 비밀번호로 복원하거나 복구 파일 발급 후 만든 백업을 선택하세요."
+	case "WINDOWS_PRIVATE_STORAGE_REQUIRED", "PRIVATE_FILE_UNAVAILABLE", "KEEP_RECOVERY_SEPARATE", "RECOVERY_IN_REPOSITORY":
+		return "Windows 사용자 프로필 안의 개인 폴더를 선택하세요. 복구 파일은 금고와 백업에서 분리해 보관하세요."
 	case "UNLOCK_FAILED", "AUTHENTICATION_FAILED":
 		return "금고를 열지 못했습니다. 비밀번호를 확인하세요."
 	case "PASSPHRASE_LENGTH":

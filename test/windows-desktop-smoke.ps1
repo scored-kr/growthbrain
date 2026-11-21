@@ -26,6 +26,13 @@ public static class DesktopSmoke {
     UIntPtr r;
     if(SetText(hwnd,12,IntPtr.Zero,value,2,3000,out r)==IntPtr.Zero || r==UIntPtr.Zero) throw new Exception("GUI input failed");
   }
+  public static void Select(IntPtr parent, int id, int index) {
+    UIntPtr result;
+    var child = GetDlgItem(parent,id);
+    if(Message(child,0x14e,(IntPtr)index,IntPtr.Zero,2,3000,out result)==IntPtr.Zero ||
+       Message(parent,0x111,(IntPtr)(0x10000 | id),child,2,3000,out result)==IntPtr.Zero)
+      throw new Exception("GUI selection failed");
+  }
   public static void Click(IntPtr hwnd) {
     UIntPtr r;
     if(Message(hwnd,0xf5,IntPtr.Zero,IntPtr.Zero,2,3000,out r)==IntPtr.Zero) throw new Exception("GUI click failed");
@@ -65,6 +72,12 @@ function Close-Desktop {
 
 try {
     Start-Desktop
+    $null = Ready-Control 143
+    [DesktopSmoke]::Select($window,143,2) # recovery using a backup and recovery file
+    $null = Ready-Control 144
+    $null = Ready-Control 146
+    $null = Ready-Control 105
+    [DesktopSmoke]::Select($window,143,0) # create a new synthetic vault
     $pw = Ready-Control 103
     $confirm = Ready-Control 105
     foreach ($field in @($pw,$confirm)) {
@@ -73,10 +86,15 @@ try {
     }
     [DesktopSmoke]::Click((Ready-Control 106))
     $null = Ready-Control 109
+    [DesktopSmoke]::Select($window,108,4) # backup and recovery key
+    $null = Ready-Control 149
+    $recheck = Ready-Control 151
+    if (([DesktopSmoke]::GetWindowLong($recheck,-16) -band 0x20) -eq 0) { throw 'Recovery reauthentication is not masked' }
     $vaultFile = Join-Path $fixture 'GrowthBrain/vault/vault.json'
     if (!(Test-Path -LiteralPath $vaultFile -PathType Leaf)) { throw 'Expected scoped vault file was not created' }
     [DesktopSmoke]::Click((Ready-Control 109))
     $null = Ready-Control 103
+    if ([DesktopSmoke]::IsWindowVisible((Control 143))) { throw 'Restore must not target an existing Windows vault' }
     if ([DesktopSmoke]::IsWindowVisible((Control 105))) { throw 'Creation confirmation still visible for existing vault' }
     Close-Desktop
 

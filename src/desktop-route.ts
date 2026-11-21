@@ -82,6 +82,7 @@ export async function openDesktopRoute(vault:VaultSession,directory:string,onSig
   const life=new AbortController();
   let web:WebServer|undefined;
   let healthy=false;
+  let failure:string|null=null;
   let fingerprint='';
   let origin:URL|undefined;
   let resolveStartup!:(server:WebServer)=>void;
@@ -91,6 +92,7 @@ export async function openDesktopRoute(vault:VaultSession,directory:string,onSig
   const close=async(code='ROUTE_CANCELLED')=>{
     healthy=false;
     if(!life.signal.aborted){
+      failure=code;
       life.abort();
       rejectStartup(Error(code));
       child.stdin.end();
@@ -166,7 +168,7 @@ export async function openDesktopRoute(vault:VaultSession,directory:string,onSig
   try {
     const server=await started;
     if(!healthy)throw Error('ROUTE_OFFLINE');
-    return {url:server.url,auth:server.auth,audit:server.audit,
+    return {url:server.url,auth:server.auth,audit:server.audit,error:()=>failure,
       status:():'ready'|'unavailable'=>healthy&&!life.signal.aborted?'ready':'unavailable',
       close:()=>close()};
   }catch(error){
