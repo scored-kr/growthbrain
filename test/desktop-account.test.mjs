@@ -152,3 +152,27 @@ test('simultaneous refreshes keep unexpired access, use the rotated token once, 
   await assert.rejects(refreshing,/ACCOUNT_SESSION_CHANGED/);
   assert.equal(app.identity(),null);
 });
+
+test('an auth service outage preserves an unexpired local identity; a subsequent denial ends it', async () => {
+  const provider = fixture();
+  let responseStatus = 200;
+  const app = new DesktopAccount(key, (url, init) => {
+    if (url.pathname.endsWith('/user') && responseStatus !== 200)
+      return Promise.resolve(Response.json({msg: 'synthetic'}, {status: responseStatus}));
+    return provider.fetcher(url, init);
+  });
+  await app.signup(email, password);
+  (await app.login(email, password)).wrappingKey.fill(0);
+  const identity = app.identity();
+  responseStatus = 503;
+  await assert.rejects(app.requireVerifiedUser(), /ACCOUNT_NETWORK_UNAVAILABLE/);
+  assert.deepEqual(app.identity(), identity);
+  // Even if a refresh succeeds remotely, do not trust its replacement until getUser succeeds.
+  await assert.rejects(app.refresh(), /ACCOUNT_NETWORK_UNAVAILABLE/);
+  assert.deepEqual(app.identity(), identity);
+  responseStatus = 200;
+  assert.deepEqual(await app.requireVerifiedUser(), identity);
+  responseStatus = 401;
+  await assert.rejects(app.requireVerifiedUser(), /ACCOUNT_AUTH_FAILED/);
+  assert.equal(app.identity(), null);
+});

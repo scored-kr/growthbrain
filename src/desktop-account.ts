@@ -1,7 +1,7 @@
 // Only the trusted desktop controller imports this provider. Its token and key
 // methods must never be exposed as an IPC command, MCP tool, or UI state field.
 import { readFile } from 'node:fs/promises';
-import { AuthClient, type Session } from '@supabase/auth-js';
+import { AuthClient, isAuthRetryableFetchError, type Session } from '@supabase/auth-js';
 import { z } from 'zod';
 import { deriveAccountKeys, requireSignupStrength } from './account-keys.js';
 
@@ -31,6 +31,7 @@ function emailCode(value: string) {
   return value;
 }
 function rejectAuth(error: {code?: string} | null, fallback: string) {
+  if (isAuthRetryableFetchError(error)) throw Error('ACCOUNT_NETWORK_UNAVAILABLE');
   if (error) throw Error(error.code === 'email_not_confirmed' ? 'ACCOUNT_EMAIL_UNCONFIRMED' : fallback);
 }
 
@@ -184,6 +185,15 @@ export class DesktopAccount {
     }
   }
 
+  // Temporary loss of connectivity leaves the last verified local session usable
+  // only until its existing expiry. A provider denial or a failed identity check
+  // invalidates it, even if its original token would still be within its lifetime.
+  private invalidateOnError(error: unknown) {
+    if (!(error instanceof Error && error.message === 'ACCOUNT_NETWORK_UNAVAILABLE' && this.identity())) {
+      this.clear();
+    }
+  }
+
   private async renew(refreshToken: string, expectedUserId: string) {
     const generation = this.generation;
     const client = this.createClient();
@@ -194,7 +204,7 @@ export class DesktopAccount {
       const verified = await this.verify(client, data.session, { userId: expectedUserId });
       return this.remember(generation, client, verified.session, verified.identity);
     } catch (error) {
-      if (this.generation === generation) this.clear();
+      if (this.generation === generation) this.invalidateOnError(error);
       throw error;
     }
   }
@@ -231,7 +241,7 @@ export class DesktopAccount {
       }
       return this.remember(generation, client, confirmed.session, confirmed.identity);
     } catch (error) {
-      if (this.generation === generation && this.session === session && !this.refreshing) this.clear();
+      if (this.generation === generation && this.session === session && !this.refreshing) this.invalidateOnError(error);
       throw error;
     }
   }
