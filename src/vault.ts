@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { open, unlink, lstat, rmdir, realpath, readdir } from 'node:fs/promises';
 import { dirname, join, resolve, relative, isAbsolute, basename, sep } from 'node:path';
 import { MemoryEngine } from './engine.js';
-import { identifier, STATE_VERSION, type TaskType } from './model.js';
+import { identifier, STATE_VERSION, type State, type TaskType } from './model.js';
 import { envelopeSchema, recoverySchema, derive, decrypt, decryptRecovery, seal, sealState, newHeader, type Envelope, type Header } from './envelope.js';
 
 import {ChunkStore,chunkHeadSchema,deltaSchema,ownedChunkObjects} from './chunk-store.js';
@@ -108,7 +108,11 @@ export class VaultSession {
   private closing = false;
   private commitNumber = 0;
   private accessGuard?: () => boolean;
-  setAccessGuard(guard: () => boolean) { this.accessGuard = guard; }
+  private replicationGuard?: () => boolean;
+  setAccessGuard(guard: () => boolean, replicationGuard = guard) {
+    this.accessGuard = guard;
+    this.replicationGuard = replicationGuard;
+  }
   get changeCounter() { return this.commitNumber; }
   private failedCommit=false;
   private chunks?:ChunkStore;
@@ -220,7 +224,7 @@ export class VaultSession {
     });
     this.queue = run.catch(() => {}); return await run;
   }
-  private requireOpen() { if (this.failedCommit || !this.engine || !this.key || (this.accessGuard && !this.accessGuard())) throw new Error('VAULT_LOCKED'); return this.engine; }
+  private requireOpen(guard = this.accessGuard) { if (this.failedCommit || !this.engine || !this.key || (guard && !guard())) throw new Error('VAULT_LOCKED'); return this.engine; }
   read<T>(operation: (engine: MemoryEngine) => T) {
     if (this.closing) throw new Error('VAULT_LOCKED');
     // Return a detached view so read operations cannot mutate the durable engine.
@@ -236,10 +240,25 @@ export class VaultSession {
     if(this.closing)throw new Error('VAULT_LOCKED');
     return structuredClone(this.requireOpen().search(projectId,query,limit,requestConditions,taskType,commonOnly));
   }
+  // Owner-only replication remains possible while a pending review pauses external clients.
+  // The desktop supplies a separate verified-account guard for these two methods.
+  replicationSnapshot() {
+    if (this.closing) throw Error('VAULT_LOCKED');
+    return this.requireOpen(this.replicationGuard).snapshot();
+  }
+  applyReplica(check: (current: State) => void, state: State) {
+    return this.mutateGuarded(engine => {
+      check(engine.snapshot());
+      engine.applyAccountState(state);
+    }, this.replicationGuard);
+  }
   mutate<T>(operation: (engine: MemoryEngine) => T): Promise<T> {
+    return this.mutateGuarded(operation, this.accessGuard);
+  }
+  private mutateGuarded<T>(operation: (engine: MemoryEngine) => T, guard?: () => boolean): Promise<T> {
     if (this.closing) return Promise.reject(new Error('VAULT_LOCKED'));
     const run = this.queue.then(async () => {
-      const next = this.requireOpen().fork();
+      const next = this.requireOpen(guard).fork();
       const result = operation(next);
       try{if(this.chunks)await this.chunks.commit(next,this.key!,this.header);else await persist(this.file, seal(next, this.key!, this.header));}catch(error){if(error instanceof Error&&error.message==='COMMIT_UNCERTAIN')this.failedCommit=true;throw error;}
       this.engine = next; this.commitNumber++;

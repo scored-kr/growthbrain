@@ -48,15 +48,17 @@ test('pull keeps device-specific consents local, preserving project scope on bot
   assert.ok(!JSON.stringify(remote.payload).includes('Secret project'));
 });
 
-test('conflicting live writers and previously accepted snapshots cannot silently roll back a cache',async t=>{
+test('disjoint projects from live writers survive reconciliation and an older remote snapshot is rejected',async t=>{
   const {open,remote}=await setup(t),a=await open('A'),b=await open('B');
   const first=await remote.pull();
   await a.vault.mutate(e=>e.addProject('A divergent'));
   await b.vault.mutate(e=>e.addProject('B divergent'));
   await a.sync();
-  await assert.rejects(b.sync(),/SYNC_CONFLICT/);
-  assert.equal(b.status().sync,'conflict');
-  assert.deepEqual(b.vault.listProjects().map(p=>p.name),['B divergent']);
+  await b.sync();
+  assert.equal(b.status().sync,'synced');
+  assert.deepEqual(b.vault.listProjects().map(p=>p.name).sort(),['A divergent','B divergent']);
+  await a.sync();
+  assert.deepEqual(a.vault.listProjects().map(p=>p.name).sort(),['A divergent','B divergent']);
   await b.stop();await b.vault.close();
   remote.payload=first.payload;
   remote.revision=first.revision;

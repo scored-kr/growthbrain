@@ -86,12 +86,12 @@ export async function writePrivateJSON(file: string, value: unknown, initial = f
 }
 
 // Validate all reserved staging files before pruning or deletion.
-export async function stagingFiles(directory: string) {
+export async function stagingFiles(directory: string, limit = MAX_PRIVATE_BYTES) {
   const files: string[] = [];
   for (const name of await readdir(directory)) {
     if (!/^\.save-[a-f0-9]{24}$/.test(name)) continue;
     const file = join(directory, name);
-    const handle = await openCheckedFile(file, MAX_PRIVATE_BYTES, true);
+    const handle = await openCheckedFile(file, limit, true);
     await handle.close();
     files.push(file);
   }
