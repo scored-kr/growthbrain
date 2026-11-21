@@ -1,5 +1,19 @@
 # 새 기기에서 개발 이어받기
 
+## Windows 일반 사용자 작업 재개 — 2026-11-21
+
+원격 `66a0b69d06330621ff4dbd48694b8dc9d66465d0`까지 기존 로컬 변경 없이 fast-forward 복원했다.
+보드 작업 `8e1cf5a3-d0d4-41e6-8ade-3708d6a969c3`의 상세 요구와 완료 기준을 조회했다.
+일반 사용자에게 개발 도구·터미널·인증서/DNS 설정을 요구하지 않는 Windows 설치형 흐름이 목표다.
+[구현 전 조사·검증 계획](windows-onboarding-plan.md)에 코드 차이와 순서를 기록했다.
+보드의 정식 스펙 상태는 `missing`이며 task-loop 규칙에 따른 스펙 없는 구현 허용 확인이 남았다.
+제품 코드·실제 Windows 설치·양쪽 웹 AI 개인화 구현 완료를 뜻하지 않는다. 프로덕션 배포 없음.
+
+이 환경의 `npm run doctor:ign8t`는 `IGN8T_CONNECTION_FAILED`로 종료했다. 기존에 설치된
+`@ign8t/mcp` 실행 파일을 Node stdio로 연결한 별도 클라이언트에서는 get_project →
+get_documents(master_spec) → get_next_task → get_task_context가 모두 성공했다.
+키는 안전한 환경 바인딩으로 전달하고 저장소에 기록하지 않았다. npx 진단 실패 원인은 미확정이다.
+
 ## 차단10개 후속 — 챕터37~39 (2026-11-06)
 
 최신 구현 커밋은 `532437f37b418a8b16e2a10afab8343d3643ea9c`다. 아래 챕터36 기록은 당시 상태다.
