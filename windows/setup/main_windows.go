@@ -138,7 +138,7 @@ func prepare() (string, error) {
 func run() error {
 	f, z, err := loadPayload()
 	if err != nil {
-		return err
+		return explainAccessDenied("설치 프로그램을 읽는 중", err)
 	}
 	defer f.Close()
 	if len(os.Args) == 3 && os.Args[1] == "--smoke-test" {

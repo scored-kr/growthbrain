@@ -22,6 +22,29 @@ type inventory struct {
 	Files   map[string]string `json:"files"`
 }
 
+type fileAccessDenied struct {
+	action string
+	cause  error
+}
+
+func (e *fileAccessDenied) Unwrap() error { return e.cause }
+
+func (e *fileAccessDenied) Error() string {
+	target := ""
+	var pathErr *fs.PathError
+	if errors.As(e.cause, &pathErr) && pathErr.Path != "" {
+		target = fmt.Sprintf(" ‘%s’에 대한", filepath.Base(pathErr.Path))
+	}
+	return e.action + target + " 접근이 거부되었습니다.\n\n사용 중인 보안 프로그램의 검사 기록을 확인하세요. 격리된 항목이 있으면 그대로 두세요."
+}
+
+func explainAccessDenied(action string, err error) error {
+	if errors.Is(err, fs.ErrPermission) {
+		return &fileAccessDenied{action, err}
+	}
+	return err
+}
+
 func checksum(r io.Reader) (string, error) {
 	h := sha256.New()
 	if _, err := io.Copy(h, r); err != nil {
@@ -41,7 +64,8 @@ func normal(path string, directory bool) error {
 	return nil
 }
 
-func verifyTree(root string) error {
+func verifyTree(root string) (result error) {
+	defer func() { result = explainAccessDenied("설치 파일의 무결성을 확인하는 중", result) }()
 	if err := normal(root, true); err != nil {
 		return err
 	}
@@ -144,7 +168,7 @@ func extract(z *zip.Reader, dst string) error {
 			return closeErr
 		}
 	}
-	return verifyTree(dst)
+	return nil
 }
 
 // app.previous is the last complete installation while a directory switch is in progress.
@@ -189,10 +213,13 @@ func install(base string, payload *zip.Reader) error {
 	}
 	tmp, err := os.MkdirTemp(base, ".install-")
 	if err != nil {
-		return err
+		return explainAccessDenied("설치 폴더를 준비하는 중", err)
 	}
 	defer os.RemoveAll(tmp) // private staging directory created by this invocation
 	if err = extract(payload, tmp); err != nil {
+		return explainAccessDenied("설치 파일을 준비하는 중", err)
+	}
+	if err = verifyTree(tmp); err != nil {
 		return err
 	}
 	if exists {

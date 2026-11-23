@@ -7,9 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
+	"testing/iotest"
 )
 
 func fixture(t *testing.T, version string, corrupt bool) *zip.Reader {
@@ -96,8 +101,8 @@ func TestPreserveOnConflict(t *testing.T) {
 				return
 			case "bad-update":
 				err = install(base, fixture(t, "2", true))
-				if err == nil {
-					t.Fatal("corrupted update accepted")
+				if err == nil || err.Error() != "수정된 파일을 보존했습니다: dist/test.js" {
+					t.Fatalf("unexpected result for an integrity mismatch: %v", err)
 				}
 				if e := verifyTree(app); e != nil {
 					t.Fatal(e)
@@ -133,6 +138,61 @@ func TestPreserveOnConflict(t *testing.T) {
 				t.Fatal("changed user edit")
 			}
 		})
+	}
+}
+
+func TestStagingAccessDeniedPreservesInstalledVersion(t *testing.T) {
+	base := t.TempDir()
+	if err := install(base, fixture(t, "1", false)); err != nil {
+		t.Fatal(err)
+	}
+	// The operating system can deny reading the setup executable partway through extraction.
+	setupName := "GrowthBrain-Setup-x64.exe"
+	cause := &fs.PathError{Op: "read", Path: filepath.Join(base, setupName), Err: fs.ErrPermission}
+	update := fixture(t, "2", false)
+	update.RegisterDecompressor(zip.Deflate, func(io.Reader) io.ReadCloser {
+		return io.NopCloser(iotest.ErrReader(cause))
+	})
+	err := install(base, update)
+	checkAccessDenied(t, err, "설치 파일을 준비하는 중", setupName)
+	if !errors.Is(err, cause) {
+		t.Fatal("lost the operating system error")
+	}
+	data, err := os.ReadFile(filepath.Join(base, "app", "GrowthBrain.exe"))
+	if err != nil || string(data) != "1" {
+		t.Fatal("staging failure changed the previous installation")
+	}
+	stages, err := filepath.Glob(filepath.Join(base, ".install-*"))
+	if err != nil || len(stages) != 0 {
+		t.Fatal("staging directory was not cleaned up")
+	}
+}
+
+func TestVerificationAccessDeniedNamesUnreadableFile(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Getuid() == 0 {
+		t.Skip("requires an unprivileged user and POSIX mode bits to induce a real read denial")
+	}
+	base := t.TempDir()
+	if err := install(base, fixture(t, "1", false)); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(base, "app", "dist", "test.js")
+	if err := os.Chmod(path, 0); err != nil {
+		t.Fatal(err)
+	}
+	err := install(base, fixture(t, "2", false))
+	checkAccessDenied(t, err, "설치 파일의 무결성을 확인하는 중", "test.js")
+}
+
+func checkAccessDenied(t *testing.T, err error, action, name string) {
+	t.Helper()
+	if !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("expected access denial, got %v", err)
+	}
+	for _, part := range []string{action, name, "접근이 거부", "검사 기록", "격리된 항목이 있으면 그대로"} {
+		if !strings.Contains(err.Error(), part) {
+			t.Fatalf("missing %q in %q", part, err)
+		}
 	}
 }
 
