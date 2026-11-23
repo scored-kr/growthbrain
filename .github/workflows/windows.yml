@@ -10,7 +10,7 @@ concurrency:
   group: windows-package-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  package:
+  go-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -21,10 +21,6 @@ jobs:
         with:
           go-version-file: integrations/windows-route/go.mod
           cache-dependency-path: '**/go.sum'
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
-        with:
-          node-version: '24'
-          cache: npm
       - name: Test TLS passthrough
         working-directory: integrations/windows-route
         run: go test -tags=ts_omit_logtail ./...
@@ -34,42 +30,36 @@ jobs:
       - name: Test desktop state and service link handling
         working-directory: windows/desktop
         run: GO111MODULE=off go test
-      - run: npm ci
-      - run: npm run build
-      - run: python3 scripts/build-windows-installer.py --output build/windows/GrowthBrain-Setup-x64.exe
-      - name: Verify the bundled payload and install/update/remove
-        working-directory: windows/setup
-        run: GROWTH_BRAIN_TEST_INSTALLER="$GITHUB_WORKSPACE/build/windows/GrowthBrain-Setup-x64.exe" go test ./...
-      - name: Record checksum
-        working-directory: build/windows
-        run: sha256sum GrowthBrain-Setup-x64.exe > SHA256SUMS.txt
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        with:
-          name: GrowthBrain-Windows-x64-${{ github.sha }}
-          path: |
-            build/windows/GrowthBrain-Setup-x64.exe
-            build/windows/SHA256SUMS.txt
-          retention-days: 14
-          if-no-files-found: error
   windows-smoke:
-    needs: package
     runs-on: windows-2025
-    timeout-minutes: 15
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
-          name: GrowthBrain-Windows-x64-${{ github.sha }}
-          path: build/windows
+          go-version-file: integrations/windows-route/go.mod
+          cache: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm.cmd ci
+      - name: Build the temporary installer for this runner
+        run: python scripts/build-windows-installer.py --output (Join-Path $env:RUNNER_TEMP GrowthBrain-Setup-x64.exe)
+      - name: Verify the bundled payload and install/update/remove
+        working-directory: windows/setup
+        run: |
+          $env:GROWTH_BRAIN_TEST_INSTALLER = Join-Path $env:RUNNER_TEMP GrowthBrain-Setup-x64.exe
+          go test -count=1 ./...
       - name: Test current-user native registration and preservation
         run: go test ./...
         working-directory: windows/native
       - name: Install, update, remove and exercise the packaged app
         shell: pwsh
         run: |
-          $setup = Resolve-Path build/windows/GrowthBrain-Setup-x64.exe
+          $setup = Resolve-Path (Join-Path $env:RUNNER_TEMP GrowthBrain-Setup-x64.exe)
           $root = Join-Path $env:RUNNER_TEMP 'GB-package-smoke'
           $packageCheck = Start-Process $setup -ArgumentList '--smoke-test' -PassThru -Wait
           if ($packageCheck.ExitCode -ne 0) { throw "Setup lifecycle failed ($($packageCheck.ExitCode))" }
@@ -78,6 +68,9 @@ jobs:
           $app = Join-Path $root app
           & (Join-Path $app node.exe) test/windows-package-smoke.mjs $app
           if ($LASTEXITCODE -ne 0) { throw 'Packaged vault smoke failed' }
+          # Tests import ../dist from the checkout. Use the bundled code and production
+          # modules; keep development dependencies aside for the SQL fixture only.
+          Rename-Item -LiteralPath node_modules -NewName ci-build-deps
           Copy-Item -Recurse (Join-Path $app dist) ./dist
           Copy-Item -Recurse (Join-Path $app node_modules) ./node_modules
           & (Join-Path $app node.exe) --test test/windows-storage.test.mjs test/windows-native.test.mjs test/windows-trust.test.mjs
@@ -86,18 +79,11 @@ jobs:
       - name: Exercise offline reconciliation and cross-device recall with both HTTPS MCP clients
         shell: pwsh
         run: |
-          # Keep the packaged runtime dependencies. Install the SQL fixture dependency
-          # under a separate prefix from the repository lock, then add only PGlite.
-          $fixtureDeps = Join-Path $env:RUNNER_TEMP 'GB-fixture-dependencies'
-          $null = New-Item -ItemType Directory -Path $fixtureDeps
-          Copy-Item package.json,package-lock.json -Destination $fixtureDeps
-          npm.cmd ci --prefix $fixtureDeps --ignore-scripts --no-audit --no-fund
-          if ($LASTEXITCODE -ne 0) { throw 'SQL fixture dependency installation failed' }
           $null = New-Item -ItemType Directory -Path node_modules/@electric-sql
-          Copy-Item -Recurse (Join-Path $fixtureDeps 'node_modules/@electric-sql/pglite') node_modules/@electric-sql/pglite
+          Copy-Item -Recurse ci-build-deps/@electric-sql/pglite node_modules/@electric-sql/pglite
           $runtime = Join-Path $env:RUNNER_TEMP 'GB-package-smoke/app/node.exe'
           & $runtime --test test/account-offline-sync.test.mjs test/desktop-offline.test.mjs test/multi-device-sync.test.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Windows multi-device acceptance failed' }
       - name: Exercise the normal Windows setup dialogs and Start menu entry
         shell: pwsh
-        run: ./test/windows-setup-dialogs.ps1 -Setup (Resolve-Path build/windows/GrowthBrain-Setup-x64.exe).Path
+        run: ./test/windows-setup-dialogs.ps1 -Setup (Resolve-Path (Join-Path $env:RUNNER_TEMP GrowthBrain-Setup-x64.exe)).Path

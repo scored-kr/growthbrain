@@ -33,4 +33,4 @@ for (name, root), directories in sorted(records.items()):
     for directory in sorted(directories):
         for path in sorted(p for p in (root / directory).iterdir() if is_notice(p)):
             sections += [name + ' — ' + path.relative_to(root).as_posix(), path.read_text(encoding='utf-8').strip()]
-Path(sys.argv[1]).write_text('\n\n'.join(sections) + '\n', encoding='utf-8')
+Path(sys.argv[1]).write_text('\n\n'.join(sections) + '\n', encoding='utf-8', newline='\n')

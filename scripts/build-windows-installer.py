@@ -1,4 +1,4 @@
-"""Build the Windows x64 test installer on Linux. No service, signing, or publication."""
+"""Build the Windows x64 test installer on Linux or Windows. No service, signing, or publication."""
 import argparse
 import hashlib
 import json
@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.request
 import zipfile
@@ -55,11 +56,11 @@ def make_payload(tmp, archive):
     app = tmp / "app"
     app.mkdir()
     # Compile directly to a fresh tree. Untracked/stale build files never enter the installer.
-    run([ROOT / "node_modules/.bin/tsc", "--outDir", app / "dist"], ROOT)
-    run(["python3", ROOT / "scripts/package-account-config.py", app / "dist"], ROOT)
+    run(["node", ROOT / "node_modules/typescript/bin/tsc", "--outDir", app / "dist"], ROOT)
+    run([sys.executable, ROOT / "scripts/package-account-config.py", app / "dist"], ROOT)
     for name in ["package.json", "package-lock.json"]:
         shutil.copy2(ROOT / name, app / name)
-    run(["npm", "ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], app)
+    run(["npm.cmd" if os.name == "nt" else "npm", "ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], app)
     shutil.rmtree(app / "node_modules/.bin", ignore_errors=True)
     node_runtime(app, tmp, archive)
 
@@ -73,9 +74,9 @@ def make_payload(tmp, archive):
         shutil.copy2(source, extension / filename)
     shutil.copyfile(app / "dist/account-auth.js", extension / "account-auth.js")
     manifest = extension / "manifest.json"
-    cfg = json.loads(manifest.read_text())
+    cfg = json.loads(manifest.read_text(encoding="utf-8"))
     cfg["key"] = (ROOT / "windows/native/extension-public-key.txt").read_text().strip()
-    manifest.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    manifest.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     (app / "licenses").mkdir()
     goroot = Path(subprocess.check_output(["go", "env", "GOROOT"], text=True).strip())
@@ -86,7 +87,7 @@ def make_payload(tmp, archive):
     shutil.copy2(ROOT / "windows/native/com.growthbrain.local.json", app)
     route = ROOT / "integrations/windows-route"
     build_go(route, app / "growth-brain-route.exe", tags=("ts_omit_logtail",))
-    run(["python3", route / "notices.py", app / "licenses/THIRD-PARTY-NOTICES.txt"], route)
+    run([sys.executable, route / "notices.py", app / "licenses/THIRD-PARTY-NOTICES.txt"], route)
     shutil.copyfile(route / "NOTICE", app / "licenses/Route-NOTICE.txt")
 
     inv = {}
