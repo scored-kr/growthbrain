@@ -13,7 +13,7 @@ python3 scripts/package-release.py /절대/경로/새로운/출력폴더
 
 패키징은 깨끗하게 커밋된 작업 트리에서만 가능하며 해당 커밋의 파일을 사용한다. 출력은 확장 ZIP, 소스 tar.gz, 파일별 SHA-256/커밋 manifest다. 동일 커밋을 두 번 생성해 바이트 일치 여부를 검증했다. 테스트용 계정 제공자와 실행 중 금고·기기 설정은 확장 ZIP에 넣지 않는다. 타입스크립트 계정 모듈은 build에서 갱신하며 Git의 생성 파일과 다르면 CI가 실패한다.
 
-제품 소스 tar.gz는 `src`의 TypeScript, Windows·연결 도우미의 Go 소스 및 모듈 정보, 확장, 빌드 입력, 제품 설치 스크립트와 사용 안내만 선별해서 담는다. 압축을 풀어 Node 24에서 `npm ci`와 `npm run build`로 금고/MCP를 빌드할 수 있다. Windows 설치 파일 빌드에는 Linux 빌드 환경의 Go·Python도 필요하다. 전체 개발 테스트는 저장소에서 실행한다.
+제품 소스 tar.gz는 `src`의 TypeScript, Windows·연결 도우미의 Go 소스 및 모듈 정보, 확장, 빌드 입력, 제품 설치 스크립트와 사용 안내만 선별해서 담는다. 압축을 풀어 Node 24에서 `npm ci`와 `npm run build`로 금고/MCP를 빌드할 수 있다. Windows 설치 파일은 Linux 또는 Windows의 Go·Python 빌드 환경에서 만든다. 현재 Windows CI는 임시 설치본을 같은 러너에서 검증하고 다운로드용 설치 파일은 게시하지 않는다. 전체 개발 테스트는 저장소에서 실행한다.
 
 내부 사업 검토·매출 계획·개발 인계 문서, `.agents`, `vendor/skills`의 외부 검토 스킬·실행 예제는 제품 소스 배포본에서 제외한다. 제품 통합에 쓰이는 자체 Codex 스킬과 Windows 연결 도우미의 제3자 고지는 포함한다. 배포 문서나 빌드 입력을 추가할 때는 `scripts/package-release.py`의 소스 목록을 검토한다. 확장 ZIP, 소스 tar.gz 및 Windows 설치 파일은 `scripts/release_files.py`의 같은 확장 파일 목록을 사용한다.
 
