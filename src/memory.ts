@@ -166,8 +166,8 @@ const manuscriptFence = /^`{3}(?:text|plaintext)?[ \t]*\r?\n([\s\S]*?)\r?\n`{3}[
 
 function containsAside(text: string): boolean {
   // Match editorial labels or an explicit change of voice, not family or product vocabulary.
-  const label = /(?:^|[\s(（【\[])[#> *_[\]-]*(?:참고(?:\s*(?:사항|메모))?|메모|주석|덧붙임|사족|작성자\s*주|추천|선택\s*이유|비교|평가|피드백|(?:개인(?:적(?:인)?)?|사적(?:인)?|비공개|내부)\s*(?:사연|메모|이야기|기록|참고)|note|aside)[*_\s]*(?:[:：]|[\]】])/iu
-  const aside = /(?:^|[.!?。！？…\n]\s*)[\s>*_-]*(?:참고로|덧붙이자면|개인적인\s*(?:얘기|이야기)(?:인데|지만))[\s,，:：]/u
+  const label = /(?:^|[\s(（【\[#>*_–—-])(?:참고(?:\s*(?:사항|메모))?|메모|주석|덧붙임|사족|작성자\s*주|추천|선택\s*이유|비교|평가|피드백|(?:개인(?:적(?:인)?)?|사적(?:인)?|비공개|내부)\s*(?:사연|메모|이야기|기록|참고)|note|aside)[*_\s]*(?:[:：]|[\]】])/iu
+  const aside = /(?:^|[.!?。！？…\n])[ \t>*_-]*(?:참고로|덧붙이자면|개인적인\s*(?:얘기|이야기)(?:인데|지만))[\s,，:：]/u
   return label.test(text) || aside.test(text)
 }
 

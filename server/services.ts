@@ -1,0 +1,11 @@
+// Callback contracts carried over from the recovery branch.
+// A display name supplied by a dynamically registered client is not its identity.
+export function serviceForCallback(raw: string): 'chatgpt' | 'claude' | null {
+  if (raw === 'https://claude.ai/api/mcp/auth_callback') return 'claude';
+  if (
+    raw === 'https://chatgpt.com/connector_platform_oauth_redirect' ||
+    /^https:\/\/chatgpt\.com\/connector\/oauth\/[A-Za-z0-9_-]+$/.test(raw)
+  )
+    return 'chatgpt';
+  return null;
+}

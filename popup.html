@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Growth Brain 연결</title>
+  <link rel="stylesheet" href="./src/popup.css">
+</head>
+<body>
+  <h1>Growth Brain</h1>
+  <p>이 Chrome 프로필에서 사용할 사이트를 선택하세요. 수집을 켜면 열린 일반 채팅의 작업 기록을 읽습니다.</p>
+  <table>
+    <thead><tr><th scope="col">사이트</th><th scope="col">대화 수집</th><th scope="col">원고 전달</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">ChatGPT</th>
+        <td><input type="checkbox" id="chatgpt-capture" aria-label="ChatGPT 대화 수집"></td>
+        <td><input type="checkbox" id="chatgpt-share" aria-label="ChatGPT 원고 전달"></td></tr>
+      <tr><th scope="row">Claude</th>
+        <td><input type="checkbox" id="claude-capture" aria-label="Claude 대화 수집"></td>
+        <td><input type="checkbox" id="claude-share" aria-label="Claude 원고 전달"></td></tr>
+    </tbody>
+  </table>
+  <p>원고 전달을 켜면 해당 서비스에서 선택된 프로젝트 원고를 조회할 수 있습니다. 사이트 계정을 바꿀 때는 먼저 전달을 끄세요.</p>
+  <button id="lock" type="button">기억 일시 잠금</button>
+  <div id="preference"></div>
+  <details id="relay">
+    <summary>개발용 MCP 연결</summary>
+    <p>이 PC에서 실행 중인 중계 서버의 일회 연결 키를 입력하세요. 브라우저를 종료하면 연결 키가 지워집니다.</p>
+    <label for="token">기기 연결 키</label>
+    <input type="password" id="token" autocomplete="off" spellcheck="false">
+    <button id="pair" type="button">연결 키 저장</button>
+    <button id="unpair" type="button">연결 해제</button>
+    <p id="projects"></p>
+  </details>
+  <p id="status" aria-live="polite"></p>
+  <script type="module" src="./src/popup.ts"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+:root { font: 14px/1.5 Nexon, "Malgun Gothic", system-ui, sans-serif; color:#111827; background:#fff; }
+body { width:310px; margin:0; padding:20px; }
+h1 { margin:0; font-size:21px; letter-spacing:-.03em; }
+p { margin:9px 0 14px; color:#475569; }
+table { width:100%; border-collapse:collapse; }
+th,td { padding:7px 4px; text-align:center; border-bottom:1px solid #dce3ee; }
+th:first-child { text-align:left; }
+thead { background:#f5f9ff; }
+input[type=checkbox] { width:18px; height:18px; accent-color:#0062f5; }
+button { font:inherit; border:1px solid #dce3ee; border-radius:12px; background:white; color:#0052cc; padding:6px 11px; cursor:pointer; }
+button:hover,summary:hover { background:#eef5ff; }
+details { margin-top:14px; padding:12px; border-radius:16px; background:#f5f9ff; }
+summary { color:#0052cc; cursor:pointer; }
+input[type=password] { width:100%; box-sizing:border-box; margin:5px 0 10px; }
+#projects { white-space:pre-line; overflow-wrap:anywhere; }
+#status:empty,#preference:empty { display:none; }
