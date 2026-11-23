@@ -86,7 +86,7 @@ function currentDecision(project: Project): Decision | undefined {
 }
 
 export function listApprovedProjects(state: MemoryState): {projectId: string, title: string}[] {
-  return state.projects.filter(project => currentDecision(project)).map(project => ({projectId: project.id, title: project.title}))
+  return state.projects.filter(project => resolveVersion(project, '최신안')).map(project => ({projectId: project.id, title: project.title}))
 }
 
 function resolveVersion(project: Project, query: string): Revision | undefined {
@@ -96,7 +96,9 @@ function resolveVersion(project: Project, query: string): Revision | undefined {
     ? project.decisions.findLast(item => !item.withdrawn && item.option === option && item.status === (/보류/u.test(query) ? 'held' : 'rejected'))
     : currentDecision(project)
   if (!decision || (option > 0 && option !== decision.option)) return
-  return project.revisions.find(item => item.option === decision.option && item.version === decision.version)
+  const revision = project.revisions.find(item => item.option === decision.option && item.version === decision.version)
+  // Also gate already-stored revisions captured by an earlier parser.
+  return revision && !containsAside(revision.text) ? revision : undefined
 }
 
 export function lookupContext(state: MemoryState, request: ContextRequest): ContextResult {
@@ -160,6 +162,15 @@ function registerBrief(state: MemoryState, chat: Conversation, text: string): vo
   bindProject(state, chat.service, chat.id, project.id)
 }
 
+const manuscriptFence = /^`{3}(?:text|plaintext)?[ \t]*\r?\n([\s\S]*?)\r?\n`{3}[ \t]*(?:\r?\n|$)/u
+
+function containsAside(text: string): boolean {
+  // Match editorial labels or an explicit change of voice, not family or product vocabulary.
+  const label = /(?:^|[\s(（【\[])[#> *_[\]-]*(?:참고(?:\s*(?:사항|메모))?|메모|주석|덧붙임|사족|작성자\s*주|추천|선택\s*이유|비교|평가|피드백|(?:개인(?:적(?:인)?)?|사적(?:인)?|비공개|내부)\s*(?:사연|메모|이야기|기록|참고)|note|aside)[*_\s]*(?:[:：]|[\]】])/iu
+  const aside = /(?:^|[.!?。！？…\n]\s*)[\s>*_-]*(?:참고로|덧붙이자면|개인적인\s*(?:얘기|이야기)(?:인데|지만))[\s,，:：]/u
+  return label.test(text) || aside.test(text)
+}
+
 function draftOptions(text: string): {option: number, text: string}[] | undefined {
   // Headers start on their own line or introduce body text with punctuation. Ordinary mentions do not split copy.
   const header = /^(?:#{1,6}[ \t]+)?(?:\*\*)?\[?(?:제?([1-9]\d?)[ \t]*안|(?:시안|안)[ \t]+([1-9]\d?))\]?(?:\*\*)?[ \t]*(?:[:：)）.\-–—][ \t]*(?:\*\*)?[ \t]*|\r?(?=\n|$))/gmu
@@ -170,10 +181,10 @@ function draftOptions(text: string): {option: number, text: string}[] | undefine
     let body = text.slice(heading.index! + heading[0].length, headers[i + 1]?.index)
     // Trim only the structural line breaks between a heading and its copy or the next heading.
     body = body.replace(/^(?:\r?\n)+|(?:\r?\n)+$/gu, '')
-    const fenced = body.match(/^`{3}(?:text|plaintext)?[ \t]*\r?\n([\s\S]*?)\r?\n`{3}[ \t]*(?:\r?\n|$)/u)
+    const fenced = body.match(manuscriptFence)
     if (fenced) body = fenced[1]!
-    else if (/\n[ \t]*\r?\n|(?:^|\n)(?:추천|선택\s*이유|비교|평가|피드백|개인\s*사연)\s*[:：]/u.test(body)) return []
-    if (!body.trim() || body.length > 32000) return []
+    else if (body.startsWith('```') || /\n[ \t]*\r?\n/u.test(body)) return []
+    if (!body.trim() || body.length > 32000 || containsAside(body)) return []
     return [{option: Number(heading[1] ?? heading[2]), text: body}]
   })
 }
@@ -193,13 +204,18 @@ function firstSentenceEnd(text: string): number {
 }
 
 function editedCopy(original: string, response: string): string | undefined {
-  const candidate = response.trim().replace(/^(?:수정(?:한|된)?\s*)?첫\s*문장\s*[:：]\s*/u, '')
-  if (!candidate || /^(?:알겠습니다|물론입니다|원문을|원고를|어떤\s*문장|확인할\s*수)/u.test(candidate)) return
+  const labeled = response.trimStart().replace(/^(?:수정(?:한|된)?\s*)?첫\s*문장\s*[:：]\s*/u, '')
+  const fenced = labeled.match(manuscriptFence)
+  if (!fenced && labeled.startsWith('```')) return
+  const candidate = fenced ? fenced[1]! : labeled
+  if (!candidate.trim() || containsAside(candidate) || containsAside(original) ||
+      /^(?:알겠습니다|물론입니다|원문을|원고를|어떤\s*문장|확인할\s*수)/u.test(candidate)) return
   const originalTail = original.slice(firstSentenceEnd(original))
-  // A full-copy answer must reproduce the exact suffix. A bare sentence is spliced onto that same suffix.
+  // Preserve final whitespace while comparing a full-copy answer, including DOM-rendered code blocks.
   const end = firstSentenceEnd(candidate)
-  if (end === 0 || (end < candidate.length && candidate.slice(end) !== originalTail)) return
-  const updated = candidate.slice(0, end) + originalTail
+  const remainder = candidate.slice(end)
+  if (!end || (remainder.trim() && remainder !== originalTail)) return
+  const updated = candidate.slice(0, end).trimEnd() + originalTail
   return updated !== original ? updated : undefined
 }
 

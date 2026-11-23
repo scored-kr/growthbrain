@@ -158,3 +158,49 @@ test('only selected work on two distinct products can prompt for a short-headlin
   }
   assert.deepEqual(state.preferences, {status:'pending'})
 })
+
+test('withhold labelled personal or editorial asides inside a numbered section, including inline and fenced text', () => {
+  const secret = '보라빛-병원-372'
+  for (const mixed of [
+    '제품 문구.\n참고: 동생의 치료 기록은 ' + secret,
+    '제품 문구. **개인 메모:** ' + secret,
+    '제품 문구.\n[비공개 기록] ' + secret,
+    '제품 문구. 참고로, ' + secret,
+    '```text\n제품 문구.\n> Note: ' + secret + '\n```'
+  ]) {
+    const state = emptyMemory()
+    send(state, 'chatgpt', 'a', 'user', '달빛 커피 상세페이지 초안 세 가지 비교해 줘.\n1안: 첫 문구.\n2안: ' + mixed + '\n3안: 마지막 문구.')
+    send(state, 'chatgpt', 'a', 'user', '2안으로 확정')
+    assert.equal(read(state).status, 'missing')
+    assert(!JSON.stringify(state.projects).includes(secret))
+  }
+})
+
+test('refuse marked aside as a replacement sentence and block earlier snapshots with unsafe copy', () => {
+  const state = emptyMemory()
+  adopted(state)
+  send(state, 'claude', 'b', 'user', ask)
+  send(state, 'claude', 'b', 'assistant', '수정한 첫 문장: 참고: 동생의 치료 기록은 보라빛-병원-372.')
+  send(state, 'claude', 'b', 'user', '그 문장으로 확정')
+  assert.equal(copy(state).text, original)
+  assert(!JSON.stringify(state.projects).includes('보라빛-병원-372'))
+  state.projects[0].revisions.find(item => item.option === 2)!.text += '\n개인적인 이야기: 보라빛-병원-372.'
+  assert.equal(read(state).status, 'missing')
+  assert.deepEqual(listApprovedProjects(state), [])
+})
+
+test('fenced DOM-rendered work keeps ordinary family/product words, paragraph breaks and trailing spaces', () => {
+  const state = emptyMemory()
+  const tail = '\n엄마와 가족이 함께 마시는 차.  \n\n향긋한 마지막 모금.  '
+  const original = '산뜻한 차.' + tail
+  send(state, 'chatgpt', 'a', 'user', '루이보스 상세페이지 초안 세 가지를 비교해 줘.')
+  send(state, 'chatgpt', 'a', 'assistant', '1안\n첫 번째.\n2안\n```text\n' + original +
+    '\n```\n참고: 동생의 치료 기록은 보라빛-병원-372.\n3안\n세 번째.')
+  send(state, 'chatgpt', 'a', 'user', '2안으로 확정')
+  assert.equal(copy(state).text, original)
+  send(state, 'claude', 'b', 'user', ask)
+  send(state, 'claude', 'b', 'assistant', '```text\n아침에 즐기는 차.' + tail + '\n```')
+  send(state, 'claude', 'b', 'user', '그 문장으로 확정')
+  assert.equal(copy(state).text, '아침에 즐기는 차.' + tail)
+  assert(!JSON.stringify(state.projects).includes('보라빛-병원-372'))
+})
