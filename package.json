@@ -13,7 +13,8 @@
     "mcp": "node server/dev.ts",
     "test:browser": "npm run build && node test/browser.ts",
     "test:installed": "npm run build && node test/browser.ts --installed",
-    "test:mcp-browser": "npm run build && node test/mcp-browser.ts"
+    "test:mcp-browser": "npm run build && node test/mcp-browser.ts",
+    "test:sync-browser": "node test/sync-browser.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",

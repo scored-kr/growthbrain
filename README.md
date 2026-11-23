@@ -33,3 +33,9 @@ npm run test:browser
 - `npm run test:browser`는 Chromium에서 모의 채팅 화면, 빌드된 팝업·콘텐츠 스크립트·백그라운드 코드, 실제 IndexedDB와 Web Crypto를 사용합니다. Chrome 확장 API는 테스트 어댑터로 제공합니다. `npm run test:installed`는 설치를 허용한 브라우저에서 압축해제 확장으로 같은 모의 채팅을 검사합니다.
 - 로그인한 두 서비스의 일반 채팅에서 처음 고른 고유 문구와 변경된 첫 문장을 직접 대조해야 실사용 왕복을 확인할 수 있습니다.
 - `npm run test:mcp-browser`는 같은 모의 채팅에서 공식 SDK → 제품 MCP → 상호 인증 WebSocket → 빌드된 확장 워커 → 암호화된 로컬 원고의 전체 경로를 검사합니다. 개발 터미널의 `reads`에는 서비스·프로젝트·버전과 응답 완료 시각만 남습니다.
+
+## 두 번째 PC의 암호문 호환성
+
+`npm run test:sync-browser`는 합성 계정과 서로 독립된 Chromium 프로세스 두 개로 복원을 검사합니다. 첫 브라우저가 실제 기억 엔진으로 2안을 확정·수정한 뒤 암호화하고 종료합니다. 두 번째 브라우저는 원래 비밀번호로 키 포장을 열고 최신 2안과 탈락한 1안을 조회합니다. 재설정한 비밀번호로는 이전 원고를 열 수 없습니다.
+
+`sync/account-envelope.ts`는 복구 브랜치의 scrypt·HKDF·AES-GCM 형식을 사용합니다. 저장소에서 볼 수 있는 메타데이터는 무작위 금고 ID, 순번, 직전 리비전, 암호문 길이 등입니다. 운영 Supabase `Growth brain`의 스키마·회원별 정책 확인과 실제 계정 동기화는 별도 단계입니다. 현재 확장의 저장 위치는 이 Chrome 프로필의 IndexedDB입니다.
