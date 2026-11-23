@@ -1,11 +1,10 @@
 # Windows에서 같은 계정으로 두 PC 이어 쓰기
 
-이 시험은 Windows 11 x64 두 대, Growth Brain 시험용 계정 두 개, 사용자 지정 MCP 연결을 허용하는 ChatGPT·Claude 웹 계정에서 진행한다. 개인 기억 대신 아래 예시를 사용한다. A와 B는 서로 다른 Windows 프로필과 설치 디렉터리를 사용한다.
+## Windows 설치 시험 보류
 
-**현재 배포 상태**
-이 브랜치에서 만든 기본 설치 파일로 Windows 설치와 로그인 화면을 시험할 수 있다. 기존 Supabase의 회원 격리 및 암호문 동기화 계약을 실제로 확인하고 연결 설정을 담은 시험 파일이 준비되어야 두 PC 시험을 시작할 수 있다. ‘계정 연결이 준비되지 않았습니다’ 또는 동기화 준비 안내가 나타나면 그 화면에서 멈춘다. 테스터가 서버를 설정하거나 기존 로컬 데이터를 옮길 필요는 없다.
+현재 Windows 설치 시험본은 다운로드와 설치를 보류한다. 이미 보안 프로그램이 파일을 격리했다면 그대로 둔다. 실시간 보호가 켜진 Windows 표준 사용자 환경에서 다운로드와 정상 설치를 확인한 뒤 이 안내를 갱신한다.
 
-오프라인 편집과 충돌 검토를 담은 설치 시험본의 소스는 `504fa1d`다. ZIP을 풀고 `GrowthBrain-Setup-x64.exe`를 실행한다. EXE의 SHA-256은 `471c4a46ea956a93a484a1f6528b41af4729fae38acae712baa95ef3c93f4167`이며 ZIP에도 체크섬이 들어 있다. 시험 설치 파일은 서명 전 산출물이다. 관리 정책이 실행을 제한하면 해당 화면을 결과에 기록한다. [설치 ZIP](https://github.com/scored-kr/growthbrain/actions/runs/44909840537/artifacts/14708698750) · [Windows 빌드 목록](https://github.com/scored-kr/growthbrain/actions/workflows/windows.yml?query=branch%3Acodex%2Fgrowthbrain-recovery-20261103)
+아래 두 PC 시험에는 계정 연결을 준비한 설치 파일, Windows 11 x64 두 대, Growth Brain 시험 계정 두 개, 사용자 지정 MCP 연결을 허용하는 ChatGPT·Claude 웹 계정이 필요하다. 재개 후 개인 기억 대신 아래 예시를 사용한다.
 
 ## PC A에서 승인한 뒤 완전히 종료
 
@@ -46,7 +45,6 @@
 
 이 시험의 목표는 새 ChatGPT 대화와 새 Claude 대화가 각각 기기의 금고에서 승인한 조건을 읽고 실제 답변에 반영하는지 확인하는 것이다. Windows 11 x64 표준 사용자 계정, 로컬 NTFS 사용자 프로필, 인터넷 연결을 사용한다. 시험용 금고에는 아래 예시처럼 가상의 내용만 넣는다.
 
-[Windows x64 설치 파일 빌드 목록](https://github.com/scored-kr/growthbrain/actions/workflows/windows.yml?query=branch%3Acodex%2Fgrowthbrain-recovery-20261103)에서 안내받은 커밋의 성공한 실행을 연다. GitHub에 로그인한 뒤 **Artifacts → GrowthBrain-Windows-x64-해당 커밋** ZIP을 받아 **모두 압축 풀기**를 선택한다. ZIP에는 설치 파일과 같은 빌드의 체크섬이 들어 있다. 산출물 보관 기간은 14일이다.
 이전 시험본 `b149ef1`은 로컬 출처가 AI 조회에 포함되던 버전이다. 이번 개인정보 검증에는 출처 분리를 적용한 새 설치 파일을 사용한다.
 
 ### 설치와 준비
