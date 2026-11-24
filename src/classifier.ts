@@ -12,6 +12,11 @@ const directive=/(?:해\s*줘|해\s*주세요|하지\s*마|하지\s*말|지\s*�
 const reusable=/앞으로|항상|선호|유지|금지|하지\s*(?:마|말)|제외|대신|\b(?:don't|do not|prefer|always|instead|keep)\b/i;
 const feedbackKey=(text:string)=>`feedback.${createHash('sha256').update(text).digest('hex').slice(0,16)}`;
 
+// Match a naming decision, including a quoted multiword title. Merely asking for name ideas is not a decision.
+const newsletterNaming = /^(?:이번\s+)?뉴스레터\s*(?:이름|명칭|명)(?:은|는|을|를)\s*(.+?)(?:으로|로)\s*(?:하자|정하자|확정하자|정해\s*줘)[.!。！]*$/u;
+const literalTitle = /^(?=.*[\p{L}\p{N}])(?:[\p{L}\p{N}][\p{L}\p{M}\p{N}-]{0,79}|"[^"\r\n]{1,80}"|“[^”\r\n]{1,80}”|'[^'\r\n]{1,80}')$/u;
+const deferredNames = new Set(['나중', '다음', '추후', '미정', '보류', '임시', '기존', '원래', '그대', '그걸', '이걸']);
+
 function explicitTopic(text:string):MemoryTopic|undefined {
   const colon=text.match(/^([^:：]{1,32})[:：]\s*(\S[\s\S]*)$/u);
   if(colon)return topicForLabel(colon[1]!);
@@ -45,13 +50,19 @@ export function classifyCapture(capture: Pick<Capture,'id'|'projectId'|'role'|'t
     const english=statement.match(/^(?:from now on,?\s*)?(?:please\s*)?(?:answer|respond|write)\s+in\s+(Korean|English)[.!\s]*$/i);
     const language=korean?.[1]??english?.[1];
     if(language){key='language';value=/한국어|korean/i.test(language)?'한국어':'English';}
+    const title = newsletterNaming.exec(statement)?.[1];
+    if (title && literalTitle.test(title) && !deferredNames.has(title)) key = 'newsletter.name';
     if(!key) {
       hasUntypedClause=true;
       if(!directive.test(statement)||!reusable.test(statement))continue;
       key=feedbackKey(statement);
     }
     const identity=JSON.stringify([key,value]);if(seen.has(identity))continue;seen.add(identity);
-    proposals.push({scope:{type:'project',projectId:capture.projectId},kind:['language','tone','format'].includes(key)?'preference':key.startsWith('feedback.')?'feedback':'constraint',key,value,
+    let kind: Proposal['kind'] = 'constraint';
+    if (key === 'newsletter.name') kind = 'decision';
+    else if (['language', 'tone', 'format'].includes(key)) kind = 'preference';
+    else if (key.startsWith('feedback.')) kind = 'feedback';
+    proposals.push({scope:{type:'project',projectId:capture.projectId},kind,key,value,
       source:{kind:'capture',reference:`${referencePrefix}:${capture.id}`,excerpt},
       reason:'Locally extracted explicit user statement. Full capture retained; scope, interpretation and any replacement require human review.'});
   }

@@ -51,3 +51,53 @@ test('untyped continuation is never detached from the condition it qualifies',()
   }
   for(const text of ['예산: 50만원\n세금은 포함할까?', '예산: 50만원\n> 세금 포함', '예산: 50만원\n```\n세금 별도\n```', '예산: 50만원\n'+'x'.repeat(4001)]) assert.deepEqual(classifyCapture(capture(text)),[],text);
 });
+
+test('a newsletter naming decision captured from chat is project-scoped and needs approval for every change', () => {
+  const { engine, project, other } = fixture();
+  engine.configureCapture({ site: 'chatgpt.com', projectId: project.id, enabled: true });
+  const message = {
+    site: 'chatgpt.com', projectId: project.id, role: 'user',
+    url: 'https://chatgpt.com/c/synthetic-campaign',
+    messageId: 'first-name', text: '이번 뉴스레터 이름은 라임우체통으로 하자'
+  };
+  const first = engine.capture(message);
+  assert.equal(first.candidateIds.length, 1);
+  const [pending] = engine.listMemories(project.id, 'candidate').memories;
+  assert.equal(pending.id, first.candidateIds[0]);
+  assert.equal(pending.key, 'newsletter.name');
+  assert.equal(pending.kind, 'decision');
+  assert.equal(pending.value, message.text);
+  assert.deepEqual(pending.scope, { type: 'project', projectId: project.id });
+  assert.deepEqual(engine.getContext({ projectId: project.id }).conditions, []);
+  assert.deepEqual(engine.listMemories(other.id, 'candidate').memories, []);
+
+  engine.review(pending.id, 'approve');
+  const changedText = '뉴스레터 이름을 “귤 우체통”으로 정하자.';
+  const change = engine.capture({ ...message, messageId: 'renamed', text: changedText });
+  assert.equal(change.candidateIds.length, 1);
+  assert.throws(() => engine.review(change.candidateIds[0], 'approve'), /EXPLICIT_SUPERSESSION_REQUIRED/);
+  const campaignValues = () => engine.getContext({ projectId: project.id }).conditions.map(c => c.value);
+  assert.deepEqual(campaignValues(), [message.text]);
+  engine.review(change.candidateIds[0], 'approve', pending.id);
+  assert.deepEqual(campaignValues(), [changedText]);
+  assert.deepEqual(engine.getContext({ projectId: other.id }).conditions, []);
+  assert.deepEqual(engine.getContext({}).conditions, []);
+});
+
+test('newsletter naming suggestions, quotes and one-off tasks stay out of memory', () => {
+  const texts = [
+    '이번 뉴스레터 이름은 라임우체통으로 할까?',
+    '이번 뉴스레터 이름은 라임우체통 같은 걸로 추천해줘',
+    '이번에만 뉴스레터 이름은 라임우체통으로 하자',
+    '이번 뉴스레터 이름은 임시로 라임우체통으로 하자',
+    '이번 뉴스레터 이름은 나중으로 하자',
+    '뉴스레터 이름은 그대로 하자',
+    '뉴스레터 이름은 “ ”으로 하자',
+    '이번 뉴스레터 이름은 라임우체통으로 하자고 했어',
+    '“이번 뉴스레터 이름은 라임우체통으로 하자”',
+    '이번 뉴스레터 이름은 다음 회의에서 정하자',
+    '이번 뉴스레터 이름은 라임우체통으로 검색하자'
+  ];
+  for (const text of texts) assert.deepEqual(classifyCapture(capture(text)), [], text);
+  assert.deepEqual(classifyCapture(capture('이번 뉴스레터 이름은 라임우체통으로 하자', 'assistant')), []);
+});
