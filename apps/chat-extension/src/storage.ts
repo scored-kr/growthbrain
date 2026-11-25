@@ -19,7 +19,7 @@ function read<T>(db: IDBDatabase, name: string): Promise<T | undefined> {
 
 type Sealed = { iv: Uint8Array<ArrayBuffer>, bytes: ArrayBuffer }
 
-export async function withMemory<T>(edit: boolean, run: (state: MemoryState) => T): Promise<T> {
+export async function withMemory<T>(edit: boolean, run: (state: MemoryState) => T, beforeWrite?: () => Promise<void>): Promise<T> {
   const db = await database()
   try {
     const [savedKey, sealed] = await Promise.all([read<CryptoKey>(db, 'key'), read<Sealed>(db, 'snapshot')])
@@ -35,6 +35,7 @@ export async function withMemory<T>(edit: boolean, run: (state: MemoryState) => 
       if (json === before) return result
       const iv = crypto.getRandomValues(new Uint8Array(12))
       const bytes = await crypto.subtle.encrypt({name:'AES-GCM', iv}, key, new TextEncoder().encode(json))
+      if (beforeWrite) await beforeWrite()
       await new Promise<void>((resolve, reject) => {
         const tx = db.transaction('records', 'readwrite')
         tx.oncomplete = () => resolve()

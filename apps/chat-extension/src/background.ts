@@ -1,7 +1,8 @@
-import { bindProject, captureTurn, listApprovedProjects, lookupContext, type Service } from './memory.ts'
+import { bindProject, captureTurn, listApprovedProjects, lookupContext, recoverInitialApproval, type Service, type Turn } from './memory.ts'
 import { approvedHeadlinePreference, decideHeadlinePreference, headlinePreferencePending } from './preferences.ts'
 import { withMemory } from './storage.ts'
 import { startRelay, reconnectRelay } from './device.ts'
+import { savedChatStatus, type CaptureStatus } from './capture-status.ts'
 
 type Grant = { capture: boolean, share: boolean }
 type Grants = Record<Service, Grant>
@@ -76,13 +77,76 @@ async function flushSourceTabs(service: Service, requestingTab?: number) {
   }
 }
 
-async function activeClaudeChat() {
+async function activeChat(service: Service) {
   const [tab] = await chrome.tabs.query({active:true, lastFocusedWindow:true})
   if (!tab?.id || !tab.url || tab.discarded) return
   const address = chatAddress(tab.url)
-  if (address?.service === 'claude' && address.conversationId !== 'new') {
+  if (address?.service === service && address.conversationId !== 'new') {
     return {tabId:tab.id, conversationId:address.conversationId}
   }
+}
+
+async function chatgptCaptureRestriction(): Promise<CaptureStatus | undefined> {
+  if (await locked()) return {status: 'locked'}
+  if (!(await grants()).chatgpt.capture) return {status: 'capture-off'}
+}
+
+type SourceTurn = Pick<Turn, 'id' | 'role' | 'text'>
+function validRecoveryTurns(turns: unknown): turns is SourceTurn[] {
+  return Array.isArray(turns) && turns.length >= 3 && turns.length <= 4 && turns.every(turn =>
+    turn && typeof turn.id === 'string' && turn.id.length > 0 && turn.id.length <= 160 &&
+    (turn.role === 'user' || turn.role === 'assistant') &&
+    typeof turn.text === 'string' && turn.text.length > 0 && turn.text.length <= 64_000)
+}
+
+async function checkActiveCapture(): Promise<CaptureStatus> {
+  const source = await activeChat('chatgpt')
+  if (!source) return {status: 'open-source'}
+  const restriction = await chatgptCaptureRestriction()
+  if (restriction) return restriction
+
+  // The source responds only after its capture writes through this worker. Holding
+  // the serialized queue here would make the check wait on its own writes.
+  let recoveryTurns: SourceTurn[] | undefined
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const receipt = await Promise.race([
+      chrome.tabs.sendMessage(source.tabId,
+        {type: 'flushCapture', conversationId: source.conversationId, checkInitialApproval: true}, {frameId: 0}),
+      new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 5000) }),
+    ])
+    if (!receipt?.ok) return {status: 'unverified'}
+    if (receipt.conversationId !== source.conversationId) return {status: 'reload'}
+    if (receipt.recoveryTurns !== undefined) {
+      if (!validRecoveryTurns(receipt.recoveryTurns)) return {status: 'unverified'}
+      recoveryTurns = receipt.recoveryTurns
+    }
+  } catch {
+    return {status: 'reload'}
+  } finally {
+    clearTimeout(timer)
+  }
+
+  const interrupted = new Error('Capture check interrupted')
+  const requireSameSource = async () => {
+    const current = await activeChat('chatgpt')
+    if (!current || current.tabId !== source.tabId || current.conversationId !== source.conversationId ||
+        await chatgptCaptureRestriction()) throw interrupted
+  }
+  return serialized(async (): Promise<CaptureStatus> => {
+    try {
+      await requireSameSource()
+      const status = await withMemory(Boolean(recoveryTurns), state => {
+        if (recoveryTurns) recoverInitialApproval(state, source.conversationId, recoveryTurns)
+        return savedChatStatus(state, source.conversationId)
+      }, requireSameSource)
+      await requireSameSource()
+      return status
+    } catch (error) {
+      if (error === interrupted) return {status: 'unverified'}
+      throw error
+    }
+  })
 }
 
 async function canCompareReply() {
@@ -95,13 +159,13 @@ async function canCompareReply() {
 async function compareActiveReply() {
   const unavailable = {status:'unverified'}
   if (!await canCompareReply()) return unavailable
-  const chat = await activeClaudeChat()
+  const chat = await activeChat('claude')
   if (!chat) return unavailable
   const result = await chrome.tabs.sendMessage(chat.tabId, {type:'compareReply',conversationId:chat.conversationId}, {frameId:0})
   if (!(result?.status === 'match' || result?.status === 'changed') ||
       !Number.isSafeInteger(result.option) || result.option < 1 ||
       !Number.isSafeInteger(result.version) || result.version < 1) return unavailable
-  const current = await activeClaudeChat()
+  const current = await activeChat('claude')
   if (current?.tabId !== chat.tabId || current.conversationId !== chat.conversationId || !await canCompareReply()) return unavailable
   return {status:result.status, option:result.option, version:result.version}
 }
@@ -145,7 +209,7 @@ async function message(raw: unknown, sender: chrome.runtime.MessageSender) {
           return {ok:pending}
         })
       }
-      case 'projects': return {projects:await locked() ? [] : await withMemory(false, listApprovedProjects)}
+      case 'projects': return await locked() ? {status:'locked', projects:[]} : {projects:await withMemory(false, listApprovedProjects)}
     }
     return {ok:false}
   }
@@ -206,6 +270,9 @@ async function message(raw: unknown, sender: chrome.runtime.MessageSender) {
 
 chrome.runtime.onMessage.addListener((m, sender, respond) => {
   async function receive() {
+    if (m?.type === 'checkActiveCapture' && sender.id === chrome.runtime.id && sender.url === chrome.runtime.getURL('popup.html')) {
+      return checkActiveCapture().catch(() => ({status:'storage-error'}))
+    }
     if (m?.type === 'compareActiveReply' && sender.id === chrome.runtime.id && sender.url === chrome.runtime.getURL('popup.html')) {
       return compareActiveReply().catch(() => ({status:'unverified'}))
     }

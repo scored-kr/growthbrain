@@ -6,6 +6,10 @@ ChatGPT와 Claude 일반 채팅에서 상세페이지 원고의 채택안과 첫
 
 GitHub에 로그인하고 [확장 빌드 목록](https://github.com/scored-kr/growthbrain/actions/workflows/chat-extension.yml?query=branch%3Acodex%2Fgrowthbrain-recovery-20261103)에서 시험할 커밋의 성공한 push 실행을 연다. **Artifacts**에서 `growth-brain-chat-extension-…`을 눌러 ZIP을 받을 수 있다. 압축을 푼 뒤 `manifest.json`이 들어 있는 폴더를 Chrome에서 로드한다. ZIP 보관 기간은 14일이다.
 
+**0.2.1에서 업데이트하기** — 압축을 풀고 `manifest.json`과 나머지 파일을 **기존 확장을 로드한 폴더**에 덮어쓴다. 같은 Chrome 프로필의 `chrome://extensions`에서 기존 Growth Brain 카드의 **새로고침(↻)**을 누른 다음, 원고를 확정했던 ChatGPT 탭을 새로고침한다. 같은 폴더와 카드를 사용해야 기존 확장 ID에 저장된 원고와 수집 권한을 이어 쓸 수 있다.
+
+**원고가 저장됐는지 확인하기** — 원래 ChatGPT 대화 탭에서 확장 팝업을 열고 **저장 상태 확인**을 누른다. 이 대화에서 읽어 온 메시지와 인식한 시안, 확정한 안의 번호와 버전에 따라 결과가 표시된다. 첫 요청·번호가 붙은 답변·명시적인 채택 발언을 화면과 기기 기록에서 다시 확인할 수 있으면 누락됐던 첫 채택을 복구한다. 팝업에 **2안 v1이 저장되어 있어요**가 나오면 Claude에서 원고 전달을 시험한다.
+
 직접 빌드할 때는 저장소 루트에서 실행한다.
 
 ```sh

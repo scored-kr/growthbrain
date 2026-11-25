@@ -307,6 +307,10 @@ export function captureTurn(state: MemoryState, turn: Turn): void {
     }
   } else chat.seen.push({id: turn.id, role: turn.role, fingerprint: signature})
 
+  applyCapturedTurn(state, chat, turn)
+}
+
+function applyCapturedTurn(state: MemoryState, chat: Conversation, turn: Turn): void {
   if (turn.role === 'user' && needsContext(turn.text)) {
     const result = lookupContext(state, {service: turn.service, conversationId: turn.conversationId, query: turn.text})
     delete chat.edit
@@ -370,4 +374,39 @@ export function captureTurn(state: MemoryState, turn: Turn): void {
     const revision = chat.presented?.find(item => item.option === Number(feedback[1]))
     if (revision) project.feedback.push({option: revision.option, version: revision.version, text: feedback[2]!, source: source(turn)})
   }
+}
+
+// An older capture could mark a choice seen before its brief or options had rendered.
+// Only the source-tab status check can retry an intact, initial brief → options → choice.
+export function recoverInitialApproval(state: MemoryState, conversationId: string, turns: Pick<Turn,'id'|'role'|'text'>[]): boolean {
+  if (turns.length !== 3 && turns.length !== 4) return false
+  if (turns.some(turn => !turn.id || !turn.text.trim() || turn.text.length > 64_000) ||
+      new Set(turns.map(turn => turn.id)).size !== turns.length) return false
+  const [brief, answer, choice, acknowledgement] = turns
+  if (brief?.role !== 'user' || answer?.role !== 'assistant' || choice?.role !== 'user' ||
+      (acknowledgement && (acknowledgement.role !== 'assistant' || draftOptions(acknowledgement.text)))) return false
+  const title = briefTitle(brief.text)
+  const pick = decisionFor(choice.text)
+  if (!title || !isNewBrief(brief.text) || pick?.status !== 'adopted' || pick.reason) return false
+  const options = draftOptions(answer.text)
+  if (!options?.some(item => item.option === pick.option)) return false
+
+  const chat = state.conversations.find(item => item.service === 'chatgpt' && item.id === conversationId)
+  if (!chat || chat.edit || turns.length !== chat.seen.length) return false
+  if (!turns.every(turn => chat.seen.some(seen =>
+    seen.id === turn.id && seen.role === turn.role && seen.fingerprint === fingerprint(turn.text)))) return false
+
+  const project = state.projects.find(item => item.id === chat.projectId)
+  const fromThisChat = (item: {source: Source}) => item.source.service === 'chatgpt' && item.source.conversationId === conversationId
+  if (!project || project.title !== title || state.projects.some(item => item !== project &&
+      (item.title === title || item.revisions.some(fromThisChat) || item.decisions.some(fromThisChat) || item.feedback.some(fromThisChat))) ||
+      state.conversations.some(item => item !== chat && item.projectId === project.id) ||
+      project.decisions.length || project.feedback.length) return false
+  // A modified, replaced, or independently captured draft cannot establish the base of the missing decision.
+  if (project.revisions.some(item => !fromThisChat(item) ||
+      item.source.id !== answer.id || item.version !== 1 || !options.some(option => option.option === item.option && option.text === item.text))) return false
+
+  applyCapturedTurn(state, chat, {...answer, service:'chatgpt', conversationId})
+  applyCapturedTurn(state, chat, {...choice, service:'chatgpt', conversationId})
+  return true
 }

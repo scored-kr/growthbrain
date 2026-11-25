@@ -8,9 +8,9 @@ import { installSimulatedRuntime } from './fixtures/browser-runtime.ts';
 
 const installed = process.argv.includes('--installed');
 const query = '어제 고른 2안의 첫 문장만 바꿔줘';
-const token = '달빛-' + randomUUID();
+const token = '자두우체통-731-' + randomUUID();
 const suffix = '\n지금 정한 문구는 ' + token + '입니다.\n이 문장은 그대로 유지합니다.';
-const original = '오늘의 커피를 천천히 만나보세요.' + suffix;
+const original = '오늘의 텀블러를 만나보세요.' + suffix;
 const replacement = '새벽의 향기를 한 모금 느껴보세요.';
 const changed = replacement + suffix;
 const latest = '최신안을 보여줘';
@@ -94,7 +94,7 @@ async function previewText(page: Page, expected: string) {
 // Inspect only this synthetic profile after both UI lookups have completed.
 // Never use an internal read to prepare a project's contents for a target tab.
 async function waitForDecision(popup: Page, source: Page, index: number) {
-  const turnId = await sent(source).nth(index).getAttribute('data-message-id');
+  const turnId = await sent(source).nth(index).evaluate(node => node.closest('[data-message-id]')?.getAttribute('data-message-id'));
   assert.ok(turnId);
   const deadline = performance.now() + 10000;
   while (performance.now() < deadline) {
@@ -125,6 +125,49 @@ async function waitForDecision(popup: Page, source: Page, index: number) {
 }
 
 type FocusChat = (page: Page) => Promise<void>;
+
+async function checkSave(popup: Page, source: Page, focusChat: FocusChat, expected: string) {
+  await popup.reload();
+  const button = popup.locator('#check-capture');
+  await button.waitFor();
+  await focusChat(source);
+  await button.click();
+  const receipt = popup.locator('#capture-result[data-status]');
+  await receipt.waitFor();
+  assert.equal(await receipt.getAttribute('data-status'), expected, await receipt.innerText());
+  if (expected === 'approved') assert.match(await receipt.innerText(), /2안 v1/);
+}
+
+async function checkLateReplyCapture(context: BrowserContext, popup: Page, focusChat: FocusChat) {
+  const chat = await useNewChat(context, 'chatgpt');
+  await send(chat, '별빛 종이컵 상세페이지 초안 3개 써줘.');
+  await send(chat, '2안으로 확정');
+  await confirmSent(chat, 1, '2안으로 확정');
+  await checkSave(popup, chat, focusChat, 'no-options');
+
+  // Virtualized history can insert the assistant's earlier reply after its choice was seen.
+  await chat.evaluate(() => {
+    const list = document.querySelector('#messages')!;
+    const choice = list.lastElementChild!;
+    (window as unknown as {fixtureReply(text: string): void}).fixtureReply('1안: 아침 종이컵.\n2안: 별빛 한 잔.\n3안: 오후 종이컵.');
+    list.insertBefore(list.lastElementChild!, choice);
+    (window as unknown as {fixtureReply(text: string): void}).fixtureReply('확인했습니다.');
+    list.lastElementChild!.setAttribute('data-is-streaming', 'true');
+  });
+  await checkSave(popup, chat, focusChat, 'options');
+  await chat.evaluate(() => {
+    const list = document.querySelector('#messages')!;
+    list.lastElementChild!.setAttribute('data-is-streaming', 'false');
+    const unsupported = document.createElement('article');
+    unsupported.textContent = '응답 종류가 확인되지 않은 추가 기록';
+    list.prepend(unsupported);
+  });
+  await checkSave(popup, chat, focusChat, 'options');
+  await chat.locator('#messages > article').first().evaluate(node => node.remove());
+  await checkSave(popup, chat, focusChat, 'approved');
+  await checkSave(popup, chat, focusChat, 'approved');
+  assert.equal(await sent(chat).count(), 2, 'Checking storage must never send a message to ChatGPT');
+}
 
 async function compareReply(popup: Page, chat: Page, focusChat: FocusChat) {
   // Reload the popup for each click so a previous verdict cannot satisfy the next assertion.
@@ -204,7 +247,20 @@ async function exercise(context: BrowserContext, popup: Page, focusChat: FocusCh
     }
   }
 
-  // No manuscript exists. Neither ordinary send path may discard the request.
+  const ambiguousSource = await useNewChat(context, 'chatgpt');
+  await send(ambiguousSource, '캠핑 머그 상세페이지 초안 3개를 써줘.');
+  await ambiguousSource.evaluate(() => {
+    // None of these rendered blocks proves a unique, stable source for a draft.
+    const output = '<div data-message-author-role="assistant"><p class="markdown">1안: 하나<br>2안: 허용하지 않은 원고</p></div>';
+    document.querySelector('#messages')!.insertAdjacentHTML('beforeend',
+      '<article data-message-id="shared">' + output + '<div data-message-author-role="tool">도구 결과</div></article>' +
+      '<article data-testid="conversation-turn-4">' + output + '</article>' +
+      '<div data-message-id="not-this-turn"><article>' + output + '</article></div>' +
+      '<article data-message-id="repeated">' + output + '</article><article data-message-id="repeated">' + output + '</article>');
+  });
+  await send(ambiguousSource, '2안으로 확정');
+
+  // No identifiable manuscript exists. Neither ordinary send path may discard the request.
   const absent = await useNewChat(context, 'claude');
   const editor = absent.getByRole('textbox');
   await editor.fill(query.slice(0,-1));
@@ -230,13 +286,19 @@ async function exercise(context: BrowserContext, popup: Page, focusChat: FocusCh
   await absent.waitForFunction((expected: string) =>
     document.querySelector<HTMLElement>('[role="textbox"]')!.innerText === expected, query);
   assert.equal(await sent(absent).count(),0);
+  await ambiguousSource.close();
 
   const chatgpt = await useNewChat(context, 'chatgpt');
-  await send(chatgpt, '달빛 커피 상세페이지 초안 세 개를 비교해 줘.');
-  await confirmSent(chatgpt,0,'달빛 커피 상세페이지 초안 세 개를 비교해 줘.');
-  await reply(chatgpt, '1안\n밝은 아침의 한 잔.\n\n2안\n' + original + '\n\n3안\n오늘 만나는 원두.');
+  await chatgpt.evaluate(() => { document.body.dataset.turnLayout = 'ancestor'; });
+  const brief = `휴대용 텀블러 상세페이지 초안을 3개 써줘. 각각 ‘1안:’, ‘2안:’, ‘3안:’으로 시작하고 두 문장씩 써줘. 2안의 두 번째 문장에 ‘${token}’을 그대로 넣어줘.`;
+  await send(chatgpt, brief);
+  await confirmSent(chatgpt,0,brief);
+  await checkSave(popup, chatgpt, focusChat, 'no-options');
+  await reply(chatgpt, '1안: 밝은 아침의 한 잔.\n2안: ' + original + '\n3안: 손에 꼭 맞는 텀블러.');
+  await checkSave(popup, chatgpt, focusChat, 'options');
   await send(chatgpt, '2안으로 확정', true);
   await confirmSent(chatgpt,1,'2안으로 확정');
+  await checkSave(popup, chatgpt, focusChat, 'approved');
 
   await checkReplyComparison(context, popup, focusChat);
   const stale = await useNewChat(context, 'claude');
@@ -343,6 +405,7 @@ try {
     ({popup, focusChat} = await installSimulatedRuntime(context));
   }
   await exercise(context,popup,focusChat);
+  await checkLateReplyCapture(context,popup,focusChat);
   console.log(JSON.stringify({chromium:'passed',sites:'local chat fixtures',runtime:installed?'unpacked MV3':'simulated Chrome messaging',modelResponses:'scripted',liveMcp:false}));
 } finally {
   await context.close();

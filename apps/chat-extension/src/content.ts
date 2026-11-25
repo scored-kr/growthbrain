@@ -1,5 +1,5 @@
 import {compareFirstSentenceReply, isFirstSentenceEdit, needsContext, type ContextResult, type Service} from './memory.ts';
-import {chatRoute, claudeTurnBaseline, claudeUserId, completedClaudeReply, composer, editorText, lastUserNode, noticeAnchor, sendButton, setEditorText, visibleTurns, type Editor} from './adapters.ts';
+import {chatRoute, claudeTurnBaseline, claudeUserId, completedClaudeReply, composer, editorText, initialCaptureTranscript, lastUserNode, noticeAnchor, sendButton, setEditorText, visibleTurns, type Editor} from './adapters.ts';
 import {ComposerNotice, type NoticeView} from './notice.ts';
 
 type Found = Extract<ContextResult, {status: 'found'}>;
@@ -348,6 +348,7 @@ function start(service: Service) {
         if (turn.role === 'user' && turn.text.includes(marker)) continue;
         const key = `${turn.role}:${turn.id}`;
         const hash = new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(turn.text))).join(',');
+        if (page() !== current || epoch !== id || !active) return false;
         if (captured.get(key) === hash) continue;
         if (turn.role === 'user' && sent && sent.request.route === current && turn.text === sent.request.question) {
           const acknowledged = await ask<{ok:boolean}>({type:'bind',conversationId:current,projectId:sent.record.projectId});
@@ -371,8 +372,19 @@ function start(service: Service) {
       timer = window.setTimeout(() => { timer = 0; void capture(); },80);
     }
   }
-  const observer = new MutationObserver(schedule);
-  function observe() { observer.observe(document,{childList:true,subtree:true,characterData:true}); }
+  const observer = new MutationObserver(records => {
+    // Streaming can finish and stable message IDs can arrive without a new DOM node.
+    // Ignore unrelated class changes such as pointer hover styles.
+    const relevant = records.some(record =>
+      record.attributeName !== 'class' || (record.target instanceof Element &&
+        (record.target.classList.contains('result-streaming') || record.oldValue?.split(/\s+/).includes('result-streaming')))
+    );
+    if (relevant) schedule();
+  });
+  function observe() {
+    observer.observe(document, {childList:true, subtree:true, characterData:true, attributes:true, attributeOldValue:true,
+      attributeFilter:['data-message-id','data-message-author-role','data-turn-id','data-testid','data-is-streaming','aria-busy','class']});
+  }
   async function settings() {
     const run = ++generation;
     epoch++; sent = undefined; comparison = undefined; held = undefined; savedDraft = undefined; captured.clear(); hide(); grants = {capture:false,share:false,guard:false};
@@ -395,10 +407,22 @@ function start(service: Service) {
       void compareReply().then(respond,() => respond(unverified));
       return true;
     }
-    if (message?.type === 'flushCapture') {
-      if (loading || !active || !grants.capture) { respond({ok:false}); return; }
+    if (message?.type === 'flushCapture' && !sender.tab) {
+      syncRoute();
+      const current = route;
+      if (loading || !active || !grants.capture || !current || current === 'new' ||
+          (message.conversationId !== undefined && message.conversationId !== current)) {
+        respond({ok:false}); return;
+      }
       const id = epoch;
-      void capture().then(ok => respond({ok:ok && active && id === epoch && grants.capture}));
+      void capture().then(ok => {
+        if (!ok || !active || id !== epoch || !grants.capture || page() !== current) {
+          respond({ok:false}); return;
+        }
+        const recoveryTurns = service === 'chatgpt' && message.checkInitialApproval === true &&
+          message.conversationId === current ? initialCaptureTranscript() : undefined;
+        respond({ok:true, conversationId:current, recoveryTurns});
+      });
       return true;
     }
   });

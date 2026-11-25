@@ -18,7 +18,7 @@ const sites = {
   chatgpt: {
     editor: '#prompt-textarea:is(textarea,[contenteditable="true"])',
     send: 'button[data-testid="send-button"],button#composer-submit-button[aria-label*="Send" i]',
-    turns: '[data-message-author-role][data-message-id]',
+    turns: '[data-message-author-role]',
     stop: 'button[data-testid="stop-button"]',
   },
   claude: {
@@ -82,8 +82,9 @@ export function noticeAnchor(editor: Editor): Element {
   return editor.closest('form') ?? editor.closest('[data-testid="chat-input-container"], [data-type="unified-composer"]') ?? editor;
 }
 
+const contentSelector = '[data-message-content],.markdown,.standard-markdown,.whitespace-pre-wrap';
 function turnContent(node: HTMLElement): HTMLElement {
-  return node.querySelector<HTMLElement>('[data-message-content],.markdown,.standard-markdown,.whitespace-pre-wrap') ?? node;
+  return node.querySelector<HTMLElement>(contentSelector) ?? node;
 }
 
 // Inspect only the last rendered user turn for our own outstanding submission.
@@ -126,6 +127,21 @@ function turnNodes(service: ChatService): HTMLElement[] {
 function turnId(node: HTMLElement): string | undefined {
   const id = node.closest('[data-message-id]')?.getAttribute('data-message-id') ??
     node.closest('[data-testid^="conversation-turn-"]')?.getAttribute('data-testid');
+  return id && id.length <= 160 ? id : undefined;
+}
+
+function renderedChatBody(node: HTMLElement): boolean {
+  return node.getClientRects().length > 0 && getComputedStyle(node).visibility === 'visible' &&
+    !node.closest('[hidden],[inert],[aria-hidden="true"],[role="dialog"]');
+}
+
+function chatgptTurnId(node: HTMLElement): string | undefined {
+  if (!renderedChatBody(node) || node.querySelector(sites.chatgpt.turns)) return;
+  // Stop at the nearest turn boundary. A surrounding chat container, a sibling
+  // turn, and a position such as conversation-turn-4 cannot identify a message.
+  const holder = node.closest<HTMLElement>('[data-message-id],[data-turn-id],[data-testid^="conversation-turn-"],article');
+  if (!holder || (holder !== node && holder.querySelectorAll(sites.chatgpt.turns).length !== 1)) return;
+  const id = holder.dataset.messageId || holder.dataset.turnId;
   return id && id.length <= 160 ? id : undefined;
 }
 
@@ -197,14 +213,52 @@ export function completedClaudeReply(baseline: string[], userId: string, expecte
 export function visibleTurns(service: ChatService): VisibleTurn[] {
   const output: VisibleTurn[] = [];
   const nodes = turnNodes(service);
-  for (const node of nodes) {
-    const id = turnId(node);
+  const ids = nodes.map(node => service === 'chatgpt' ? chatgptTurnId(node) : turnId(node));
+  const seen = new Set<string>(), duplicates = new Set<string>();
+  if (service === 'chatgpt') for (const id of ids) {
+    if (!id) continue;
+    if (seen.has(id)) duplicates.add(id);
+    seen.add(id);
+  }
+  for (const [index, node] of nodes.entries()) {
+    const id = ids[index];
     const role = turnRole(service,node);
-    if (!id || (role !== 'user' && role !== 'assistant')) continue;
+    if (!id || duplicates.has(id) || (role !== 'user' && role !== 'assistant')) continue;
     if (role === 'assistant' && node === nodes.at(-1) && streaming(service,node)) continue;
     const content = turnContent(node);
     const text = role === 'assistant' ? assistantText(content) : content.innerText;
     if (text?.trim() && text.length <= 64_000) output.push({id,role,text});
   }
   return output;
+}
+
+// Recovery requires the visible initial exchange in chronological order.
+// An ordinary scan can skip unknown blocks; an approval replay cannot.
+export function initialCaptureTranscript(): VisibleTurn[] | undefined {
+  const main = document.querySelector('main');
+  if (!main || document.querySelectorAll('main').length !== 1) return;
+  const authors = [...main.querySelectorAll<HTMLElement>(sites.chatgpt.turns)];
+  if (authors.length !== 3 && authors.length !== 4) return;
+  const boundary = 'article,[data-testid^="conversation-turn-"]';
+  const frames: HTMLElement[] = [];
+  for (const [i, author] of authors.entries()) {
+    const role = i % 2 === 0 ? 'user' : 'assistant';
+    if (turnRole('chatgpt', author) !== role || !chatgptTurnId(author)) return;
+    const frame = author.closest<HTMLElement>(boundary) ?? author.closest<HTMLElement>('[data-message-id],[data-turn-id]');
+    if (!frame || !main.contains(frame) || streaming('chatgpt', frame)) return;
+    // Unlike the second turn, a fourth turn has no subsequent user message
+    // proving that its generation finished. A quiet DOM alone is insufficient.
+    if (i === 3 && frame.dataset.isStreaming !== 'false' && !hasCompletionEvidence(author)) return;
+    const content = turnContent(author);
+    if (!content.matches(contentSelector) || !renderedChatBody(content)) return;
+    // Distinct rendered bodies might include a tool result or private aside.
+    if ([...frame.querySelectorAll(contentSelector)].some(part => !content.contains(part) && !part.contains(content))) return;
+    frames.push(frame);
+  }
+  const siblings = frames[0]?.parentElement?.children;
+  if (siblings?.length !== frames.length || frames.some((frame, i) => siblings[i] !== frame)) return;
+  const marked = main.querySelectorAll(boundary + ',[data-message-id],[data-turn-id]');
+  if ([...marked].some(mark => !frames.some(frame => frame.contains(mark)))) return;
+  const turns = visibleTurns('chatgpt');
+  return turns.length === authors.length && turns.every((turn, i) => turn.id === chatgptTurnId(authors[i]!)) ? turns : undefined;
 }

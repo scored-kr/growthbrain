@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {bindProject, captureTurn, compareFirstSentenceReply, emptyMemory, listApprovedProjects, lookupContext, needsContext} from '../src/memory.ts'
+import {bindProject, captureTurn, compareFirstSentenceReply, emptyMemory, listApprovedProjects, lookupContext, needsContext, recoverInitialApproval} from '../src/memory.ts'
 import type {MemoryState, Service, Turn} from '../src/memory.ts'
 
 const suffix = '\n기억의 원두 7B-눈꽃은 그대로.  두 칸도 보존합니다.'
@@ -111,6 +111,64 @@ test('rerenders deduplicate and editing a decision withdraws its original approv
   send(state, 'chatgpt', 'source', 'user', '아직 아무 안도 확정하지 않을게.', 'pick')
   assert.equal(read(state).status, 'missing')
   assert.equal(state.projects[0].decisions[0].withdrawn, true)
+})
+
+const initialChat: Turn[] = [
+  {service:'chatgpt', conversationId:'source', id:'brief', role:'user', text:'휴대용 텀블러 상세페이지 초안을 3개 써줘.'},
+  {service:'chatgpt', conversationId:'source', id:'draft', role:'assistant', text:'1안: 첫 문구.\n2안: 자두우체통-731.\n3안: 마지막 문구.'},
+  {service:'chatgpt', conversationId:'source', id:'pick', role:'user', text:'2안으로 확정'},
+  {service:'chatgpt', conversationId:'source', id:'ack', role:'assistant', text:'2안을 선택했어요.'}
+]
+
+function captureInOrder(order: number[]): MemoryState {
+  const state = emptyMemory()
+  for (const index of order) captureTurn(state, initialChat[index]!)
+  return state
+}
+
+test('a matching rendered transcript recovers the initial missed choice once, including after restart', () => {
+  for (const arrival of [[0,2,1], [1,2,0,3], [2,1,0,3]]) {
+    const state: MemoryState = JSON.parse(JSON.stringify(captureInOrder(arrival)))
+    const transcript = initialChat.slice(0, arrival.length)
+    transcript.forEach(turn => captureTurn(state, turn))
+    assert.equal(read(state).status, 'missing') // fingerprints already consumed the out-of-order turns
+    const before = structuredClone(state.conversations[0]!)
+    assert.equal(recoverInitialApproval(state, 'source', transcript), true)
+    const ordered = captureInOrder([0,1,2])
+    assert.deepEqual(state.projects[0]!.revisions, ordered.projects[0]!.revisions)
+    assert.deepEqual(state.projects[0]!.decisions, ordered.projects[0]!.decisions)
+    assert.deepEqual(state.conversations[0]!.seen, before.seen)
+    assert.equal(state.conversations[0]!.projectId, before.projectId)
+    assert.equal(copy(state).text, '자두우체통-731.')
+    const saved = structuredClone(state)
+    assert.equal(recoverInitialApproval(state, 'source', transcript), false)
+    assert.deepEqual(state, saved)
+  }
+})
+
+test('incomplete, changed, conflicting and withdrawn histories remain untouched during capture recovery', () => {
+  function unchanged(state: MemoryState, transcript: Turn[] = initialChat, id = 'source') {
+    const saved = structuredClone(state)
+    assert.equal(recoverInitialApproval(state, id, transcript), false)
+    assert.deepEqual(state, saved)
+  }
+  const pending = captureInOrder([0,2,1,3])
+  unchanged(pending, initialChat.slice(0,3))
+  unchanged(pending, initialChat, 'other')
+  unchanged(pending, [initialChat[0]!, initialChat[1]!, {...initialChat[2]!,id:'brief'}, initialChat[3]!])
+  unchanged(pending, initialChat.map(turn => turn.id === 'draft' ? {...turn,text:turn.text + ' 변경됨'} : turn))
+  const competing = structuredClone(pending)
+  bindProject(competing, 'claude', 'foreign-chat', competing.projects[0]!.id)
+  unchanged(competing)
+  send(pending,'chatgpt','source','user','다른 안을 다시 비교할게','later')
+  unchanged(pending)
+  const withdrawn = captureInOrder([0,1,2,3])
+  send(withdrawn,'chatgpt','source','user','아직 고르지 않았어','pick')
+  unchanged(withdrawn)
+  // A later edit back to this phrase must not recover a withdrawn decision even if fingerprints match.
+  const afterWithdrawal = structuredClone(withdrawn)
+  afterWithdrawal.conversations[0]!.seen = captureInOrder([0,1,2,3]).conversations[0]!.seen
+  unchanged(afterWithdrawal)
 })
 
 test('private conversations and arbitrary ambiguous trailing text never enter the result', () => {
