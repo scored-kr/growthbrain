@@ -1,5 +1,7 @@
 # Growth Brain
 
+**한 PC에서 ChatGPT의 원고를 새 Claude 채팅으로 이어 쓰기** — Chrome에서 사용하는 새 버전은 [일반 채팅용 확장](apps/chat-extension/README.md)입니다. 이 경로는 승인한 원고를 Chrome 프로필에 암호화해 보관하며 Windows 프로그램이나 Supabase 계정 설정 없이 시작할 수 있습니다.
+
 **Windows 설치 파일의 다운로드와 설치는 현재 보류 중입니다.** PC A를 종료한 뒤 새 PC B에서 승인한 선호도와 프로젝트를 확인하는 절차, 시험 설치 파일의 연결 준비 상태, ChatGPT·Claude별 합격 조건은 [Windows 두 PC 시험 안내](docs/windows-test-guide.md)에 있습니다.
 
 

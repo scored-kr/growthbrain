@@ -1,0 +1,33 @@
+{
+  "name": "growth-brain-chat-extension",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build && vite build --config vite.content.ts",
+    "test": "node --test test/*.test.ts",
+    "mcp": "node server/dev.ts",
+    "test:browser": "npm run build && node test/browser.ts",
+    "test:installed": "npm run build && node test/browser.ts --installed",
+    "test:mcp-browser": "npm run build && node test/mcp-browser.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "express": "5.3.0",
+    "ws": "8.23.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.3.7",
+    "@types/express": "5.0.6",
+    "@types/node": "24.19.2",
+    "@types/ws": "8.18.2",
+    "playwright": "1.65.1",
+    "typescript": "5.9.3",
+    "vite": "7.3.8"
+  }
+}

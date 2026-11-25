@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="UTF-8">
+<title>Growth Brain synthetic chat</title>
+<style>
+  [contenteditable], article { white-space: pre-wrap; }
+  [contenteditable] { min-height: 2em; border: 1px solid; }
+</style>
+<main>
+  <section id="messages" aria-label="대화"></section>
+  <form>
+    <div contenteditable="true" role="textbox" aria-label="메시지"></div>
+    <button type="submit">보내기</button>
+  </form>
+</main>
+<script>
+  const isChatGPT = location.hostname === 'chatgpt.com';
+  const form = document.querySelector('form');
+  const composer = form.querySelector('[contenteditable]');
+  const send = form.querySelector('button');
+  composer.id = isChatGPT ? 'prompt-textarea' : 'chat-input';
+  composer.className = 'ProseMirror';
+  send.dataset.testid = isChatGPT ? 'send-button' : 'send-message';
+  send.setAttribute('aria-label', 'Send message');
+
+  function appendTurn(role, text, id = crypto.randomUUID()) {
+    const turn = document.createElement('article');
+    turn.dataset.messageId = id;
+    turn.dataset.messageAuthorRole = role;
+    if (!isChatGPT) turn.dataset.testid = role + '-message';
+    const body = document.createElement('div');
+    body.className = isChatGPT ? 'markdown' : 'standard-markdown';
+    body.innerText = text;
+    turn.append(body);
+    document.querySelector('#messages').append(turn);
+  }
+  function submitText() {
+    const text = composer.innerText;
+    if (!text.trim()) return;
+    if (location.pathname === '/' || location.pathname === '/new') {
+      const prefix = isChatGPT ? '/c/' : '/chat/';
+      history.pushState(null, '', prefix + crypto.randomUUID());
+    }
+    appendTurn('user', text);
+    composer.replaceChildren();
+    composer.dispatchEvent(new InputEvent('input', {bubbles:true}));
+  }
+  form.addEventListener('submit', event => {
+    event.preventDefault();
+    submitText();
+  });
+  composer.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
+      event.preventDefault();
+      form.requestSubmit();
+    }
+  });
+  // The fixture supplies an explicitly scripted assistant reply; it never contacts a model.
+  window.fixtureReply = text => appendTurn('assistant', text);
+</script>
+</html>
