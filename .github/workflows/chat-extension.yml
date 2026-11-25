@@ -35,3 +35,11 @@ jobs:
         run: node test/mcp-browser.ts --installed
       - name: Run the unpacked extension on fixture chat pages
         run: node test/browser.ts --installed
+      - name: Upload the tested Chrome extension
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: growth-brain-chat-extension-${{ github.sha }}
+          path: apps/chat-extension/dist/
+          if-no-files-found: error
+          retention-days: 14

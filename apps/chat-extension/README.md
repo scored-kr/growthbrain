@@ -4,6 +4,10 @@ ChatGPT와 Claude 일반 채팅에서 상세페이지 원고의 채택안과 첫
 
 ## 한 PC에서 확인하기
 
+GitHub에 로그인하고 [확장 빌드 목록](https://github.com/scored-kr/growthbrain/actions/workflows/chat-extension.yml?query=branch%3Acodex%2Fgrowthbrain-recovery-20261103)에서 시험할 커밋의 성공한 push 실행을 연다. **Artifacts**에서 `growth-brain-chat-extension-…`을 눌러 ZIP을 받을 수 있다. 압축을 푼 뒤 `manifest.json`이 들어 있는 폴더를 Chrome에서 로드한다. ZIP 보관 기간은 14일이다.
+
+직접 빌드할 때는 저장소 루트에서 실행한다.
+
 ```sh
 cd apps/chat-extension
 npm ci
