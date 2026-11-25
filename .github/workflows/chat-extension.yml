@@ -1,0 +1,37 @@
+name: Single-PC chat extension
+on:
+  push:
+    branches: [codex/growthbrain-recovery-20261103]
+    paths:
+      - apps/chat-extension/**
+      - .github/workflows/chat-extension.yml
+  pull_request:
+    paths:
+      - apps/chat-extension/**
+      - .github/workflows/chat-extension.yml
+permissions:
+  contents: read
+jobs:
+  chat-extension:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/chat-extension
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/chat-extension/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npm test
+      - name: Read the approved draft through the product MCP
+        run: node test/mcp-browser.ts --installed
+      - name: Run the unpacked extension on fixture chat pages
+        run: node test/browser.ts --installed

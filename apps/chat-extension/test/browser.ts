@@ -1,15 +1,12 @@
 import assert from 'node:assert/strict';
-import { access, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as pause } from 'node:timers/promises';
 import { performance } from 'node:perf_hooks';
-import { chromium, type Page, type BrowserContext } from 'playwright';
+import type { Page, BrowserContext } from 'playwright';
+import { launchFixtureBrowser, openInstalledPopup } from './fixtures/chromium.ts';
 import { installSimulatedRuntime } from './fixtures/browser-runtime.ts';
 
 const installed = process.argv.includes('--installed');
-const dist = resolve('dist');
 const query = '어제 고른 2안의 첫 문장만 바꿔줘';
 const token = '달빛-' + randomUUID();
 const suffix = '\n지금 정한 문구는 ' + token + '입니다.\n이 문장은 그대로 유지합니다.';
@@ -17,33 +14,6 @@ const original = '오늘의 커피를 천천히 만나보세요.' + suffix;
 const replacement = '새벽의 향기를 한 모금 느껴보세요.';
 const changed = replacement + suffix;
 const latest = '최신안을 보여줘';
-const fixturePath = new URL('./fixtures/chat.html', import.meta.url);
-
-async function checkedExecutable() {
-  if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
-  for (const path of [chromium.executablePath(), '/usr/bin/chromium']) {
-    if (await access(path).then(() => true, () => false)) return path;
-  }
-  throw new Error('Install Playwright Chromium or specify CHROMIUM_PATH.');
-}
-
-// Linux administrator policy applies to the installed-extension check. Synthetic
-// mode only executes app code inside our own pages; it never installs an extension.
-async function assertUnpackedAllowed() {
-  for (const dir of ['/etc/chromium/policies/managed', '/etc/opt/chrome/policies/managed']) {
-    const files = await readdir(dir).catch((e: NodeJS.ErrnoException) => {
-      if (e.code === 'ENOENT') return [];
-      throw e;
-    });
-    for (const name of files.filter(name => name.endsWith('.json'))) {
-      const policy = JSON.parse(await readFile(join(dir, name), 'utf8'));
-      if (policy.ExtensionInstallBlocklist?.includes('*') ||
-          policy.ExtensionSettings?.['*']?.installation_mode === 'blocked') {
-        throw new Error('Managed policy blocks unpacked extensions here. Run the installed check on a permitted Chrome profile.');
-      }
-    }
-  }
-}
 
 async function send(page: Page, text: string, byButton = false) {
   const editor = page.getByRole('textbox');
@@ -154,7 +124,78 @@ async function waitForDecision(popup: Page, source: Page, index: number) {
   throw new Error('The source selection was not committed to encrypted storage');
 }
 
-async function exercise(context: BrowserContext, popup: Page) {
+type FocusChat = (page: Page) => Promise<void>;
+
+async function compareReply(popup: Page, chat: Page, focusChat: FocusChat) {
+  // Reload the popup for each click so a previous verdict cannot satisfy the next assertion.
+  await popup.reload();
+  const button = popup.locator('#compare-reply');
+  await button.waitFor();
+  await focusChat(chat);
+  // In installed mode this is Chrome's actual foreground tab. A real action popup
+  // leaves it selected. Our standalone popup page must preserve that behavior.
+  const activeChatUrl = () => popup.evaluate(async () => (await chrome.tabs.query({active:true, lastFocusedWindow:true}))[0]?.url);
+  assert.equal(await activeChatUrl(), chat.url());
+  await button.click();
+  const result = popup.locator('#compare-result[data-status]');
+  await result.waitFor();
+  assert.equal(await activeChatUrl(), chat.url(), 'Checking the popup must leave the Claude tab selected');
+  assert.ok((await result.innerText()).trim(), 'The result must be readable in the popup');
+  return result.getAttribute('data-status');
+}
+
+async function checkReplyComparison(context: BrowserContext, popup: Page, focusChat: FocusChat) {
+  const full = changed;
+
+  const page = await useNewChat(context, 'claude');
+  await send(page, query);
+  await confirmSent(page, 0, query);
+  await panelButton(page, /2안 조회 미확인/, 0);
+  assert.equal(await compareReply(popup, page, focusChat), 'unverified', 'A question alone cannot prove a match');
+  await reply(page, full);
+  const assistant = page.locator('[data-message-author-role="assistant"]').last();
+  const body = assistant.locator('.standard-markdown');
+  await assistant.evaluate(node => node.setAttribute('data-is-streaming', 'true'));
+  assert.equal(await compareReply(popup, page, focusChat), 'unverified', 'Wait for the streaming response to finish');
+  await assistant.evaluate(node => node.removeAttribute('data-is-streaming'));
+  assert.equal(await compareReply(popup, page, focusChat), 'unverified', 'A silent partial render can already contain the full expected text');
+  await assistant.evaluate(node => node.setAttribute('data-is-streaming', 'false'));
+  assert.equal(await compareReply(popup, page, focusChat), 'match');
+
+  await body.evaluate((node, text) => {node.innerText = text;}, replacement);
+  assert.notEqual(await compareReply(popup, page, focusChat), 'match', 'A bare replacement sentence omits the protected suffix');
+  await body.evaluate((node, text) => {node.innerText = text;}, full.replace(token, '달라진-고유-문구'));
+  assert.equal(await compareReply(popup, page, focusChat), 'changed');
+  await body.evaluate((node, text) => {node.innerText = text;}, full);
+  assert.equal(await compareReply(popup, page, focusChat), 'match');
+  assert.equal(await sent(page).count(), 1, 'Checks must not send anything into chat');
+
+  await send(page, '방금 원고와 관련 없는 다음 질문이야.');
+  await confirmSent(page, 1, '방금 원고와 관련 없는 다음 질문이야.');
+  await reply(page, full);
+  assert.equal(await compareReply(popup, page, focusChat), 'unverified', 'An adjacent answer to an unrelated turn is ineligible');
+
+  const revoked = await useNewChat(context, 'claude');
+  await send(revoked, query);
+  await confirmSent(revoked, 0, query);
+  await panelButton(revoked, /2안 조회 미확인/, 0);
+  await reply(revoked, full);
+  assert.equal(await compareReply(popup, revoked, focusChat), 'match');
+  // The fallback attaches a new question and copy. Its receipt must invalidate the earlier answer.
+  await panelButton(revoked, /2안 조회 미확인/);
+  await panelButton(revoked, /^2안과 함께 다시 보내기$/);
+  await sent(revoked).nth(1).waitFor();
+  assert.equal(await compareReply(popup, revoked, focusChat), 'unverified');
+  await reply(revoked, full);
+  assert.equal(await compareReply(popup, revoked, focusChat), 'match');
+  await popup.locator('#claude-share').uncheck();
+  await popup.waitForFunction(() => document.querySelector('#status')?.textContent?.includes('저장했습니다'));
+  assert.equal(await compareReply(popup, revoked, focusChat), 'unverified');
+  await popup.locator('#claude-share').check();
+  await popup.waitForFunction(() => document.querySelector('#status')?.textContent?.includes('저장했습니다'));
+}
+
+async function exercise(context: BrowserContext, popup: Page, focusChat: FocusChat) {
   for (const service of ['chatgpt', 'claude']) {
     for (const consent of ['capture', 'share']) {
       const control = popup.locator('#' + service + '-' + consent);
@@ -196,6 +237,12 @@ async function exercise(context: BrowserContext, popup: Page) {
   await reply(chatgpt, '1안\n밝은 아침의 한 잔.\n\n2안\n' + original + '\n\n3안\n오늘 만나는 원두.');
   await send(chatgpt, '2안으로 확정', true);
   await confirmSent(chatgpt,1,'2안으로 확정');
+
+  await checkReplyComparison(context, popup, focusChat);
+  const stale = await useNewChat(context, 'claude');
+  await send(stale, query);
+  await confirmSent(stale, 0, query);
+  await panelButton(stale, /2안 조회 미확인/, 0);
 
   const claude = await useNewChat(context, 'claude');
   await send(claude, query);
@@ -253,6 +300,10 @@ async function exercise(context: BrowserContext, popup: Page) {
   await waitForDecision(popup,chatgpt,1);
   await waitForDecision(popup,claude,2);
 
+  // This query resolved ChatGPT option 2 v1. Claude has since confirmed v2.
+  await reply(stale, changed);
+  assert.equal(await compareReply(popup, stale, focusChat), 'unverified', 'The original lookup revision is stale');
+
   // Sharing remains useful on a service whose conversation capture is disabled.
   await popup.locator('#claude-capture').uncheck();
   const shareOnly = await useNewChat(context,'claude');
@@ -282,37 +333,17 @@ async function exercise(context: BrowserContext, popup: Page) {
   assert.equal(await fresh.locator('growth-brain-notice').count(),0);
 }
 
-if (installed) await assertUnpackedAllowed();
-const profile = await mkdtemp(join(tmpdir(),'growth-brain-browser-'));
-let context: BrowserContext | undefined;
+const context = await launchFixtureBrowser(installed);
 try {
-  const args = installed ? ['--disable-extensions-except=' + dist, '--load-extension=' + dist] : [];
-  context = await chromium.launchPersistentContext(profile, {
-    channel:'chromium', executablePath:await checkedExecutable(), headless:true, args,
-    ...(installed && {ignoreDefaultArgs:['--disable-extensions']}),
-    serviceWorkers:installed ? 'allow' : 'block',
-  });
-  context.setDefaultTimeout(10000);
-  // Never contact ChatGPT/Claude or their models. All requests that leave a page
-  // are intercepted even in installed mode.
-  await context.route(/^https?:\/\//, route => route.abort());
-  const html = await readFile(fixturePath,'utf8');
-  for (const host of ['chatgpt.com','claude.ai']) {
-    await context.route('https://' + host + '/**', route => route.request().isNavigationRequest()
-      ? route.fulfill({body:html,contentType:'text/html;charset=utf-8'}) : route.abort());
-  }
   let popup: Page;
+  let focusChat: FocusChat = page => page.bringToFront();
   if (installed) {
-    const isGrowthBrain = (worker: {url():string}) => new URL(worker.url()).pathname === '/background.js';
-    const worker = context.serviceWorkers().find(isGrowthBrain) ?? await context.waitForEvent('serviceworker',isGrowthBrain);
-    popup = await context.newPage();
-    await popup.goto(new URL('popup.html',worker.url()).href);
+    popup = await openInstalledPopup(context);
   } else {
-    ({popup} = await installSimulatedRuntime(context));
+    ({popup, focusChat} = await installSimulatedRuntime(context));
   }
-  await exercise(context,popup);
+  await exercise(context,popup,focusChat);
   console.log(JSON.stringify({chromium:'passed',sites:'local chat fixtures',runtime:installed?'unpacked MV3':'simulated Chrome messaging',modelResponses:'scripted',liveMcp:false}));
 } finally {
-  await context?.close();
-  await rm(profile, {recursive:true,force:true});
+  await context.close();
 }

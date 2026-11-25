@@ -13,4 +13,4 @@ details { margin-top:14px; padding:12px; border-radius:16px; background:#f5f9ff;
 summary { color:#0052cc; cursor:pointer; }
 input[type=password] { width:100%; box-sizing:border-box; margin:5px 0 10px; }
 #projects { white-space:pre-line; overflow-wrap:anywhere; }
-#status:empty,#preference:empty { display:none; }
+#compare-result:empty,#status:empty,#preference:empty { display:none; }

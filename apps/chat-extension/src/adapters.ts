@@ -118,24 +118,93 @@ function assistantText(content: HTMLElement): string {
   return blocks.join('\n');
 }
 
+function turnNodes(service: ChatService): HTMLElement[] {
+  const selector = sites[service].turns;
+  return [...document.querySelectorAll<HTMLElement>(selector)].filter(node => !node.parentElement?.closest(selector));
+}
+
+function turnId(node: HTMLElement): string | undefined {
+  const id = node.closest('[data-message-id]')?.getAttribute('data-message-id') ??
+    node.closest('[data-testid^="conversation-turn-"]')?.getAttribute('data-testid');
+  return id && id.length <= 160 ? id : undefined;
+}
+
+function turnRole(service: ChatService, node: HTMLElement) {
+  if (service === 'claude') return node.dataset.testid === 'user-message' ? 'user' : 'assistant';
+  return node.getAttribute('data-message-author-role');
+}
+
+function streaming(service: ChatService, node: HTMLElement): boolean {
+  const busy = '[aria-busy="true"],[data-is-streaming="true"],.result-streaming';
+  return !!(document.querySelector(sites[service].stop) || node.closest(busy) || node.querySelector(busy));
+}
+
+// A baseline contains only the visible turn identities at dispatch. A changed
+// branch, virtualized history or ambiguous DOM cannot establish adjacency.
+function visibleClaudeNodes() {
+  return turnNodes('claude').filter(node => node.getClientRects().length && !node.closest('[aria-hidden="true"],[inert]'));
+}
+function claudeKey(node: HTMLElement): string | undefined {
+  const id = turnId(node);
+  return id && turnRole('claude',node) + ':' + id;
+}
+export function claudeTurnBaseline(): string[] | undefined {
+  const keys = new Set<string>();
+  for (const node of visibleClaudeNodes()) {
+    const key = claudeKey(node);
+    if (!key || keys.has(key)) return;
+    keys.add(key);
+  }
+  return [...keys];
+}
+
+export function claudeUserId(content: HTMLElement): string | undefined {
+  const node = content.closest<HTMLElement>('[data-testid="user-message"]');
+  return node ? turnId(node) : undefined;
+}
+
+function hasCompletionEvidence(assistant: HTMLElement): boolean {
+  const holder = assistant.closest<HTMLElement>('[data-message-id]') ?? assistant;
+  const done = '[data-is-streaming="false"]';
+  if (assistant.matches(done) || holder.matches(done)) return true;
+  // Code-block copy controls and global chat controls say nothing about the
+  // generation state. Only accept an action explicitly tied to this response.
+  const content = turnContent(assistant);
+  const selector = 'button[data-testid="action-bar-copy"],button[aria-label="Copy response" i],button[aria-label="응답 복사"],button[aria-label="답변 복사"]';
+  return [...holder.querySelectorAll<HTMLButtonElement>(selector)].some(button =>
+    !button.disabled && button.getAttribute('aria-disabled') !== 'true' && !button.closest('pre,code,[hidden],[aria-hidden="true"]') &&
+    button.getClientRects().length > 0 && !content.contains(button));
+}
+
+export function completedClaudeReply(baseline: string[], userId: string, expected: string) {
+  const nodes = visibleClaudeNodes();
+  if (nodes.length !== baseline.length + 2 || baseline.some((key,i) => claudeKey(nodes[i]!) !== key)) return;
+  const user = nodes[baseline.length]!, assistant = nodes[baseline.length+1]!;
+  const key = 'user:' + userId;
+  const assistantId = turnId(assistant);
+  if (claudeKey(user) !== key || baseline.includes(key) || turnContent(user).innerText !== expected ||
+      !assistantId || turnRole('claude',assistant) !== 'assistant' ||
+      baseline.includes('assistant:' + assistantId) || streaming('claude',assistant) || !hasCompletionEvidence(assistant)) return;
+  // Multiple text parts (for example separate tool results) cannot establish
+  // that a single rendered manuscript is the entire reply.
+  const selector = '[data-message-content],.standard-markdown,.markdown';
+  const parts = [...assistant.querySelectorAll<HTMLElement>(selector)];
+  if (parts.filter(part => !parts.some(other => other !== part && other.contains(part))).length > 1) return;
+  const text = assistantText(turnContent(assistant));
+  return text.trim() && text.length <= 64_000 ? {id:assistantId,text} : undefined;
+}
+
 export function visibleTurns(service: ChatService): VisibleTurn[] {
   const output: VisibleTurn[] = [];
-  const selector = sites[service].turns;
-  const streaming = !!document.querySelector(sites[service].stop);
-  const nodes = [...document.querySelectorAll<HTMLElement>(selector)]
-    .filter(node => !node.parentElement?.closest(selector));
+  const nodes = turnNodes(service);
   for (const node of nodes) {
-    const id = node.closest('[data-message-id]')?.getAttribute('data-message-id') ??
-      node.closest('[data-testid^="conversation-turn-"]')?.getAttribute('data-testid');
-    const role = service === 'chatgpt' ? node.getAttribute('data-message-author-role') :
-      node.dataset.testid === 'user-message' ? 'user' : 'assistant';
+    const id = turnId(node);
+    const role = turnRole(service,node);
     if (!id || (role !== 'user' && role !== 'assistant')) continue;
-    if (role === 'assistant' && node === nodes.at(-1) && (streaming ||
-        node.closest('[aria-busy="true"],[data-is-streaming="true"]') ||
-        node.querySelector('[data-is-streaming="true"],.result-streaming'))) continue;
+    if (role === 'assistant' && node === nodes.at(-1) && streaming(service,node)) continue;
     const content = turnContent(node);
     const text = role === 'assistant' ? assistantText(content) : content.innerText;
-    if (text?.trim() && id.length <= 160 && text.length <= 64_000) output.push({id,role,text});
+    if (text?.trim() && text.length <= 64_000) output.push({id,role,text});
   }
   return output;
 }

@@ -76,6 +76,36 @@ async function flushSourceTabs(service: Service, requestingTab?: number) {
   }
 }
 
+async function activeClaudeChat() {
+  const [tab] = await chrome.tabs.query({active:true, lastFocusedWindow:true})
+  if (!tab?.id || !tab.url || tab.discarded) return
+  const address = chatAddress(tab.url)
+  if (address?.service === 'claude' && address.conversationId !== 'new') {
+    return {tabId:tab.id, conversationId:address.conversationId}
+  }
+}
+
+async function canCompareReply() {
+  const {claude} = await grants()
+  return claude.capture && claude.share && !await locked()
+}
+
+// Content compares the visible reply locally and asks this worker to revalidate
+// its approved revision. Keep this call outside the queue serving that request.
+async function compareActiveReply() {
+  const unavailable = {status:'unverified'}
+  if (!await canCompareReply()) return unavailable
+  const chat = await activeClaudeChat()
+  if (!chat) return unavailable
+  const result = await chrome.tabs.sendMessage(chat.tabId, {type:'compareReply',conversationId:chat.conversationId}, {frameId:0})
+  if (!(result?.status === 'match' || result?.status === 'changed') ||
+      !Number.isSafeInteger(result.option) || result.option < 1 ||
+      !Number.isSafeInteger(result.version) || result.version < 1) return unavailable
+  const current = await activeClaudeChat()
+  if (current?.tabId !== chat.tabId || current.conversationId !== chat.conversationId || !await canCompareReply()) return unavailable
+  return {status:result.status, option:result.option, version:result.version}
+}
+
 async function message(raw: unknown, sender: chrome.runtime.MessageSender) {
   if (!raw || typeof raw !== 'object' || sender.id !== chrome.runtime.id) return {ok:false}
   const m = raw as Record<string, unknown>
@@ -138,6 +168,16 @@ async function message(raw: unknown, sender: chrome.runtime.MessageSender) {
       if (m.text) await chrome.storage.session.set({[draftKey]:m.text})
       else await chrome.storage.session.remove(draftKey)
       return {ok:true}
+    case 'checkApproved': {
+      if (service !== 'claude' || !grant.capture || !grant.share || conversationId === 'new' ||
+          !validId(m.projectId) || !Number.isSafeInteger(m.option) || !Number.isSafeInteger(m.version)) return {ok:false}
+      const projectId = m.projectId
+      return withMemory(false, state => {
+        const result = lookupContext(state, {service, conversationId, projectId, query:'최신안을 보여줘'})
+        return {ok:result.status === 'found' && result.projectId === projectId &&
+          result.option === m.option && result.version === m.version && result.sourceService === 'chatgpt'}
+      })
+    }
     case 'capture': {
       if (!grant.capture || conversationId === 'new' || typeof m.id !== 'string' || !m.id || m.id.length > 256 ||
           (m.role !== 'user' && m.role !== 'assistant') || typeof m.text !== 'string' || m.text.length > 100_000) break
@@ -166,7 +206,10 @@ async function message(raw: unknown, sender: chrome.runtime.MessageSender) {
 
 chrome.runtime.onMessage.addListener((m, sender, respond) => {
   async function receive() {
-    if (m?.type === 'lookup' && sender.id === chrome.runtime.id && sender.frameId === 0 &&
+    if (m?.type === 'compareActiveReply' && sender.id === chrome.runtime.id && sender.url === chrome.runtime.getURL('popup.html')) {
+      return compareActiveReply().catch(() => ({status:'unverified'}))
+    }
+    if ((m?.type === 'lookup' || m?.type === 'checkApproved') && sender.id === chrome.runtime.id && sender.frameId === 0 &&
         sender.url && sender.tab?.id !== undefined) {
       const address = chatAddress(sender.tab.url || sender.url)
       if (address && new URL(sender.url).origin === sites[address.service]) {
@@ -189,7 +232,7 @@ startRelay(async request => {
       if (preference === '별도 요청이 없으면 제목은 짧게 씁니다.' && listApprovedProjects(state).some(p => p.projectId === request.projectId)) {
         return {status:'preference' as const, projectId:request.projectId, preference}
       }
-      const result = lookupContext(state, { ...request, conversationId:'mcp' })
+      const result = lookupContext(state, { ...request, conversationId:'mcp', scope:'service-grant' })
       if (result.status !== 'found' || result.projectId !== request.projectId) return {status:'missing' as const}
       const { projectId, option, version, text } = result
       return {status:'found' as const, projectId, option, version, text}

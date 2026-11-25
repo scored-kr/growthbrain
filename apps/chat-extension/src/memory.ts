@@ -14,9 +14,10 @@ export interface ContextRequest {
   conversationId: string
   query: string
   projectId?: string
+  scope?: 'service-grant'
 }
 export type ContextResult =
-  | {status: 'found', projectId: string, title: string, option: number, version: number, text: string}
+  | {status: 'found', projectId: string, title: string, option: number, version: number, text: string, sourceService: Service}
   | {status: 'ambiguous', projects: {projectId: string, title: string}[]}
   | {status: 'missing'}
 
@@ -72,6 +73,10 @@ const latest = /최신\s*(?:확정\s*)?(?:안|본|버전|원고|문구|문장)|(
 const historical = /탈락|기각|보류/u
 const firstLineEdit = /첫\s*(?:번째\s*)?(?:문장|줄)[^\n]{0,24}(?:바꿔|바꾸|바꿀|고쳐|고치|수정|다듬|다시\s*써|변경)/u
 
+export function isFirstSentenceEdit(query: string): boolean {
+  return firstLineEdit.test(query)
+}
+
 export function needsContext(query: string): boolean {
   if (isNewBrief(query) || decisionFor(query) || confirmation.test(query.trim())) return false
   if (latest.test(query) || firstLineEdit.test(query) && /어제|고른|확정한|채택한|[1-9]\d?\s*안/u.test(query)) return true
@@ -101,23 +106,61 @@ function resolveVersion(project: Project, query: string): Revision | undefined {
   return revision && !containsAside(revision.text) ? revision : undefined
 }
 
+function namedProjects(projects: Project[], query: string): Project[] {
+  const normalize = (text: string) => text.normalize('NFC').toLowerCase().replace(/\s+/gu, ' ').trim()
+  const phrase = normalize(query)
+  const mentions = projects.map(project => ({project, title:normalize(project.title)}))
+    .filter(({title}) => title && phrase.includes(title))
+  if (mentions.length <= 1) return mentions.map(({project}) => project)
+
+  // A title inside a longer mentioned title isn't a second reference at that position.
+  // Keep it if it also occurs independently. Equal names remain ambiguous.
+  const ranges: {project: Project, start: number, end: number}[] = []
+  for (const {title, project} of mentions) {
+    for (let start = phrase.indexOf(title); start >= 0; start = phrase.indexOf(title, start + 1)) {
+      ranges.push({project, start, end:start + title.length})
+    }
+  }
+  ranges.sort((a, b) => a.start - b.start || b.end - a.end)
+  const result = new Set<Project>()
+  let outerStart = -1, outerEnd = -1
+  for (const range of ranges) {
+    if (range.end > outerEnd || range.start === outerStart && range.end === outerEnd) {
+      result.add(range.project)
+      outerStart = range.start
+      outerEnd = range.end
+    }
+  }
+  return [...result]
+}
+
 export function lookupContext(state: MemoryState, request: ContextRequest): ContextResult {
   if (!needsContext(request.query)) return {status: 'missing'}
-  const bound = state.conversations.find(chat => chat.service === request.service && chat.id === request.conversationId)?.projectId
-  const named = state.projects.filter(project => request.query.includes(project.title))
-  let candidates = state.projects
-  if (request.projectId !== undefined) candidates = (named.length ? named : candidates).filter(project => project.id === request.projectId)
-  else if (named.length) candidates = named
-  else if (bound) candidates = candidates.filter(project => project.id === bound)
+  // The read returns one manuscript. Never silently choose the first of two requested options.
+  const numbers = new Set([...request.query.matchAll(/([1-9]\d?)\s*안/gu)].map(m => m[1]))
+  if (numbers.size > 1) return {status: 'missing'}
+  const granted = request.scope === 'service-grant'
+  const named = namedProjects(state.projects, request.query)
+  if (granted && (!request.projectId || named.length > 1)) return {status:'missing'}
+  let candidates = named.length ? named : state.projects
+  if (!granted) {
+    const bound = state.conversations.find(chat => chat.service === request.service && chat.id === request.conversationId)?.projectId
+    const selected = request.projectId ?? (named.length ? undefined : bound)
+    if (selected !== undefined) candidates = candidates.filter(project => project.id === selected)
+  }
   const matches = candidates.flatMap(project => {
     const revision = resolveVersion(project, request.query)
     return revision ? [{project, revision}] : []
   })
+  // A fixed connector grant limits disclosure. It cannot resolve an ambiguous cross-chat reference.
+  // Only the extension UI may show candidate titles or narrow a neutral question by a local choice.
+  if (granted && (matches.length !== 1 || matches[0]!.project.id !== request.projectId)) return {status:'missing'}
+  if (named.length > 1 && candidates.length > matches.length) return {status:'missing'}
   if (matches.length > 1) return {status: 'ambiguous', projects: matches.map(({project}) => ({projectId: project.id, title: project.title}))}
   const match = matches[0]
   if (!match) return {status: 'missing'}
   const {option, version, text} = match.revision
-  return {status: 'found', projectId: match.project.id, title: match.project.title, option, version, text}
+  return {status: 'found', projectId: match.project.id, title: match.project.title, option, version, text, sourceService: match.revision.source.service}
 }
 
 function source(turn: Turn): Source {
@@ -203,19 +246,34 @@ function firstSentenceEnd(text: string): number {
   return boundary.index + (/^\r?\n/u.test(boundary[0]) ? 0 : boundary[0].length)
 }
 
-function editedCopy(original: string, response: string): string | undefined {
+function sentenceReply(original: string, response: string) {
   const labeled = response.trimStart().replace(/^(?:수정(?:한|된)?\s*)?첫\s*문장\s*[:：]\s*/u, '')
   const fenced = labeled.match(manuscriptFence)
   if (!fenced && labeled.startsWith('```')) return
+  if (fenced && labeled.slice(fenced[0].length).trim()) return
   const candidate = fenced ? fenced[1]! : labeled
   if (!candidate.trim() || containsAside(candidate) || containsAside(original) ||
       /^(?:알겠습니다|물론입니다|원문을|원고를|어떤\s*문장|확인할\s*수)/u.test(candidate)) return
-  const originalTail = original.slice(firstSentenceEnd(original))
-  // Preserve final whitespace while comparing a full-copy answer, including DOM-rendered code blocks.
+  const originalEnd = firstSentenceEnd(original)
   const end = firstSentenceEnd(candidate)
-  const remainder = candidate.slice(end)
-  if (!end || (remainder.trim() && remainder !== originalTail)) return
-  const updated = candidate.slice(0, end).trimEnd() + originalTail
+  if (!end) return
+  return {
+    originalFirst: original.slice(0, originalEnd), originalTail: original.slice(originalEnd),
+    first: candidate.slice(0, end).trimEnd(), tail: candidate.slice(end)
+  }
+}
+
+export function compareFirstSentenceReply(original: string, response: string): 'match' | 'changed' | 'unverified' {
+  const reply = sentenceReply(original, response)
+  // A single replacement sentence can be applied locally, but provides no model-returned suffix to compare.
+  if (!reply || !reply.originalTail.trim() || !reply.tail.trim() || reply.originalFirst.trim() === reply.first.trim()) return 'unverified'
+  return reply.tail === reply.originalTail ? 'match' : 'changed'
+}
+
+function editedCopy(original: string, response: string): string | undefined {
+  const reply = sentenceReply(original, response)
+  if (!reply || (reply.tail.trim() && reply.tail !== reply.originalTail)) return
+  const updated = reply.first + reply.originalTail
   return updated !== original ? updated : undefined
 }
 

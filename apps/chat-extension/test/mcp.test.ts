@@ -76,6 +76,7 @@ test('real SDK get_context over HTTP OAuth and a paired synthetic device reads o
       projectId: substitute ? other : req.projectId,
       service: req.service,
       conversationId: 'official',
+      scope: 'service-grant',
     });
     const headline = approvedHeadlinePreference({ status: 'accepted' }, req.query);
     const context = headline
@@ -108,7 +109,7 @@ test('real SDK get_context over HTTP OAuth and a paired synthetic device reads o
     (await claude.listTools()).tools.map((t) => t.name),
     ['get_context'],
   );
-  const query = '어제 고른 2안의 첫 문장만 바꿔줘';
+  const query = '찻잔 상세페이지에서 어제 고른 2안의 첫 문장만 바꿔줘';
   const get = (c: Client, question = query) => c.callTool({ name: 'get_context', arguments: { query: question } });
   const first = await get(claude);
   assert.equal(first.isError, undefined);
@@ -129,9 +130,9 @@ test('real SDK get_context over HTTP OAuth and a paired synthetic device reads o
   bindProject(state, 'claude', 'new', project);
   turn('claude', 'new', 'user', query);
   turn('claude', 'new', 'assistant', '달라진 찻잔.');
-  assert.equal((await get(chatgpt, '최신안 보여줘')).structuredContent?.context.text, old);
+  assert.equal((await get(chatgpt, '찻잔의 최신안 보여줘')).structuredContent?.context.text, old);
   turn('claude', 'new', 'user', '이 문장으로 확정');
-  assert.equal((await get(chatgpt, '최신안 보여줘')).structuredContent?.context.text, '달라진 찻잔.' + suffix);
+  assert.equal((await get(chatgpt, '찻잔의 최신안 보여줘')).structuredContent?.context.text, '달라진 찻잔.' + suffix);
   const preferred = await get(claude, '헤드라인 써줘');
   assert.deepEqual(preferred.structuredContent?.context, {
     status: 'preference',

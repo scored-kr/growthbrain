@@ -5,6 +5,8 @@ const status = byId('status')
 const send = (msg: object) => chrome.runtime.sendMessage(msg)
 async function refresh() {
   const settings = await send({type:'permissions'})
+  byId('compare-result').textContent = ''
+  delete byId('compare-result').dataset.status
   for (const service of ['chatgpt','claude'] as Service[]) {
     for (const field of ['capture','share'] as const) {
       const box = byId<HTMLInputElement>(service + '-' + field)
@@ -38,6 +40,21 @@ async function refresh() {
       panel.append(button)
     }
   }
+}
+byId('compare-reply').onclick = async () => {
+  const output = byId('compare-result')
+  delete output.dataset.status
+  output.textContent = '현재 Claude 답변을 대조하고 있습니다.'
+  const result = await send({type:'compareActiveReply'}).catch(() => undefined)
+  const state = result?.status
+  if (state === 'match') {
+    output.textContent = `${result.option}안 v${result.version}과 대조했습니다. 첫 문장이 바뀌었고 이후 원문이 일치합니다.`
+  } else if (state === 'changed') {
+    output.textContent = `${result.option}안 v${result.version}과 대조했습니다. 답변이 첫 문장만 바뀐 원고와 일치하지 않습니다.`
+  } else {
+    output.textContent = '대조할 답변을 확인할 수 없습니다. 첫 문장 수정을 요청한 Claude 탭에서 전체 원고 답변이 끝난 뒤 확인하세요.'
+  }
+  output.dataset.status = state === 'match' || state === 'changed' ? state : 'unverified'
 }
 const relay = byId<HTMLDetailsElement>('relay')
 relay.ontoggle = async () => {

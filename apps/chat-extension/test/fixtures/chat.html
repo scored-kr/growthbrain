@@ -28,6 +28,7 @@
     turn.dataset.messageId = id;
     turn.dataset.messageAuthorRole = role;
     if (!isChatGPT) turn.dataset.testid = role + '-message';
+    if (!isChatGPT && role === 'assistant') turn.dataset.isStreaming = 'false';
     const body = document.createElement('div');
     body.className = isChatGPT ? 'markdown' : 'standard-markdown';
     body.innerText = text;

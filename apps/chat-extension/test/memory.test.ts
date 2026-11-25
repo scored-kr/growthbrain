@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {bindProject, captureTurn, emptyMemory, listApprovedProjects, lookupContext, needsContext} from '../src/memory.ts'
+import {bindProject, captureTurn, compareFirstSentenceReply, emptyMemory, listApprovedProjects, lookupContext, needsContext} from '../src/memory.ts'
 import type {MemoryState, Service, Turn} from '../src/memory.ts'
 
 const suffix = '\n기억의 원두 7B-눈꽃은 그대로.  두 칸도 보존합니다.'
@@ -203,4 +203,58 @@ test('fenced DOM-rendered work keeps ordinary family/product words, paragraph br
   send(state, 'claude', 'b', 'user', '그 문장으로 확정')
   assert.equal(copy(state).text, '아침에 즐기는 차.' + tail)
   assert(!JSON.stringify(state.projects).includes('보라빛-병원-372'))
+})
+
+test('a connector grant authorizes one project without deciding which manuscript an ambiguous question meant', () => {
+  const state = emptyMemory()
+  adopted(state, 'cup', '유리잔')
+  adopted(state, 'towel', '면수건')
+  const [cup, towel] = listApprovedProjects(state)
+  const grant = (query: string, projectId: string) => lookupContext(state, {
+    scope: 'service-grant', service: 'claude', conversationId: 'test-client', query, projectId
+  })
+  assert.deepEqual(grant('면수건의 2안 원문을 보여줘', cup.projectId), {status:'missing'})
+  assert.deepEqual(grant('유리잔과 면수건 중 어제 고른 2안 원고 보여줘', cup.projectId), {status:'missing'})
+  assert.deepEqual(grant(ask, cup.projectId), {status:'missing'})
+  assert.equal(grant('면수건의 2안 원문을 보여줘', towel.projectId).status, 'found')
+  assert.equal(read(state, ask).status, 'ambiguous')
+  assert.equal(read(state, ask, 'new', cup.projectId).status, 'found')
+
+  // Even if only one project still has an active draft, a two-title question has no unique target.
+  send(state, 'chatgpt', 'towel', 'user', '2안은 보류')
+  assert.deepEqual(grant('유리잔과 면수건의 최신안을 보여줘', cup.projectId), {status:'missing'})
+  assert.deepEqual(grant('면수건의 최신안을 보여줘', cup.projectId), {status:'missing'})
+  assert.deepEqual(grant('유리잔의 1안과 2안 원고를 보여줘', cup.projectId), {status:'missing'})
+})
+
+test('an embedded short project name yields to the full title, unless mentioned separately', () => {
+  const state = emptyMemory()
+  adopted(state, 'short', '커피')
+  adopted(state, 'long', '달빛 커피')
+  const [short, long] = listApprovedProjects(state)
+  const query = '달빛 커피의 2안 원문을 보여줘'
+  const request = {scope:'service-grant' as const, service:'claude' as const, conversationId:'official', query}
+  assert.deepEqual(lookupContext(state, {...request, projectId:short.projectId}), {status:'missing'})
+  const found = lookupContext(state, {...request, projectId:long.projectId})
+  assert.equal(found.status, 'found')
+  assert.equal(found.projectId, long.projectId)
+  assert.equal(found.sourceService, 'chatgpt')
+  assert.equal(copy(state, query).projectId, long.projectId)
+  const multiple = '달빛 커피와 커피의 2안 원고를 보여줘'
+  assert.equal(read(state, multiple).status, 'ambiguous')
+  assert.deepEqual(lookupContext(state, {...request, query:multiple, projectId:short.projectId}), {status:'missing'})
+  assert.deepEqual(lookupContext(state, {...request, query:multiple, projectId:long.projectId}), {status:'missing'})
+})
+
+test('only an actually returned exact suffix counts as a verified model reply', () => {
+  const original = '첫 문장.\n\n보존할 문장.  '
+  assert.equal(compareFirstSentenceReply(original, '바뀐 문장.'), 'unverified')
+  assert.equal(compareFirstSentenceReply(original, original), 'unverified')
+  const padded = '  같은 제목  \n보존할 문장.'
+  assert.equal(compareFirstSentenceReply(padded, padded), 'unverified')
+  const twoReplies = '```text\n바뀐 문장.\n\n보존할 문장.  \n```\n```text\n다른 후보.\n```'
+  assert.equal(compareFirstSentenceReply(original, twoReplies), 'unverified')
+  assert.equal(compareFirstSentenceReply(original, '원문을 확인할 수 없어요. 다시 보여 주세요.'), 'unverified')
+  assert.equal(compareFirstSentenceReply(original, '바뀐 문장.\n\n보존할 문장.  '), 'match')
+  assert.equal(compareFirstSentenceReply(original, '바뀐 문장.\n\n보존할 문장.'), 'changed')
 })

@@ -9,7 +9,7 @@ const extensionId = 'gfbbgfbbgfbbgfbbgfbbgfbbgfbbgfbb';
 interface FixtureRuntime {
   sendToWorker(message: unknown): Promise<unknown>;
   receive(message: unknown, sender: object): Promise<unknown>;
-  listChatTabs(): Promise<{id:number,url:string}[]>;
+  listChatTabs(query?: {active?:boolean, lastFocusedWindow?:boolean}): Promise<{id:number,url:string}[]>;
   sendToTab(tabId:number,message:unknown): Promise<unknown>;
 }
 
@@ -79,13 +79,13 @@ function installChromeShim({ id, origin }: {id: string; origin: string}) {
     storage: { local: storage('local'), session: storage('session'), onChanged: changed },
     alarms: { create: async () => {}, clear: async () => true, onAlarm: events() },
     tabs: {
-      onRemoved: events(), onUpdated: events(), query: () => root.listChatTabs(),
+      onRemoved: events(), onUpdated: events(), query: (query: {active?:boolean, lastFocusedWindow?:boolean}) => root.listChatTabs(query),
       sendMessage: (id: number, message: unknown) => root.sendToTab(id,message),
     },
   });
 }
 
-export async function installSimulatedRuntime(context: BrowserContext): Promise<{popup: Page}> {
+export async function installSimulatedRuntime(context: BrowserContext): Promise<{popup: Page; focusChat(page: Page): Promise<void>}> {
   await context.route(fixtureOrigin + '/**', async route => {
     const path = new URL(route.request().url()).pathname.slice(1);
     if (path === 'worker') {
@@ -100,7 +100,11 @@ export async function installSimulatedRuntime(context: BrowserContext): Promise<
   const worker = await context.newPage();
   let nextTabId = 0;
   const ids = new WeakMap<Page, number>();
-  await context.exposeBinding('listChatTabs', () => context.pages().flatMap(page => {
+  // An action popup leaves its host chat selected in the last-focused window.
+  // All tabs in this fixture belong to window 1. Tests set the tab as a user would.
+  let selected: Page | undefined;
+  await context.exposeBinding('listChatTabs', (_source, query = {}) => context.pages().flatMap(page => {
+    if (query.active === true && selected !== page) return [];
     const id = ids.get(page);
     return id && /^https:\/\/(chatgpt\.com|claude\.ai)\//.test(page.url()) ? [{id,url:page.url()}] : [];
   }));
@@ -131,5 +135,5 @@ export async function installSimulatedRuntime(context: BrowserContext): Promise<
   }, content);
   const popup = await context.newPage();
   await popup.goto(fixtureOrigin + '/popup.html');
-  return {popup};
+  return {popup, async focusChat(page) { await page.bringToFront(); selected = page; }};
 }

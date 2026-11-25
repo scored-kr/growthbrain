@@ -1,5 +1,5 @@
-import {needsContext, type ContextResult, type Service} from './memory.ts';
-import {chatRoute, composer, editorText, lastUserNode, noticeAnchor, sendButton, setEditorText, visibleTurns, type Editor} from './adapters.ts';
+import {compareFirstSentenceReply, isFirstSentenceEdit, needsContext, type ContextResult, type Service} from './memory.ts';
+import {chatRoute, claudeTurnBaseline, claudeUserId, completedClaudeReply, composer, editorText, lastUserNode, noticeAnchor, sendButton, setEditorText, visibleTurns, type Editor} from './adapters.ts';
 import {ComposerNotice, type NoticeView} from './notice.ts';
 
 type Found = Extract<ContextResult, {status: 'found'}>;
@@ -7,6 +7,8 @@ type Lookup = ContextResult | {status: 'denied'};
 type Receipt = {expected: string; previous?: HTMLElement; started: number; warned?: boolean};
 type Sent = {request: Request; record: Found; delivered: boolean; moving?: boolean; receipt?: Receipt};
 type Request = {route: string; question: string; projectId?: string};
+type Comparison = { request: Request; base: Found; expected: string; baseline: string[]; userId?: string; replyId?: string };
+const unverified = {status:'unverified'} as const;
 const marker = '\n\n〔Growth Brain 승인 원고 · ';
 const ask = <T>(message: Record<string, unknown>): Promise<T> => chrome.runtime.sendMessage(message);
 
@@ -27,6 +29,7 @@ function start(service: Service) {
   let held: Request | undefined;
   let sent: Sent | undefined;
   let savedDraft: Request | undefined;
+  let comparison: Comparison | undefined;
   let committing = Promise.resolve(true);
   let timer = 0;
   let generation = 0;
@@ -123,6 +126,9 @@ function start(service: Service) {
     if (!receipt || pending !== sent || !active || page() !== pending.request.route) return;
     const current = lastUserNode(service);
     if (current && current !== receipt.previous && current.innerText === receipt.expected) {
+      if (comparison?.request === pending.request && comparison.expected === receipt.expected) {
+        comparison.userId = claudeUserId(current);
+      }
       delete pending.receipt;
       pending.moving = false;
       if (pending.delivered) hide();
@@ -146,6 +152,29 @@ function start(service: Service) {
   function track(pending: Sent, expected: string) {
     pending.receipt = {expected, previous:lastUserNode(service), started:Date.now()};
     window.setTimeout(() => watchReceipt(pending),3600);
+  }
+  function trackComparison(pending: Sent, expected: string) {
+    comparison = undefined;
+    if (service !== 'claude' || !grants.capture || !grants.share || pending.record.sourceService !== 'chatgpt' ||
+        !isFirstSentenceEdit(pending.request.question)) return;
+    const baseline = claudeTurnBaseline();
+    if (baseline) comparison = {request:pending.request, base:pending.record, expected, baseline};
+  }
+  async function compareReply() {
+    const check = comparison;
+    if (loading || !active || !grants.capture || !grants.share || !check?.userId ||
+        !route || route === 'new' || page() !== route || check.request.route !== route) return unverified;
+    const id = epoch;
+    const current = completedClaudeReply(check.baseline,check.userId,check.expected);
+    if (!current || check.replyId && check.replyId !== current.id) return unverified;
+    const {projectId, option, version} = check.base;
+    const approved = await ask<{ok:boolean}>({type:'checkApproved',conversationId:route,projectId,option,version});
+    if (!approved?.ok || comparison !== check || !valid(check.request,id) || !grants.capture || !grants.share) return unverified;
+    const final = completedClaudeReply(check.baseline,check.userId,check.expected);
+    if (!final || final.id !== current.id || final.text !== current.text) return unverified;
+    check.replyId = final.id;
+    const status = compareFirstSentenceReply(check.base.text,final.text);
+    return status === 'unverified' ? unverified : {status,option,version};
   }
   async function resend() {
     const pending = sent;
@@ -177,7 +206,9 @@ function start(service: Service) {
       }
       pending.delivered = true;
       track(pending,combined);
+      trackComparison(pending,combined);
       if (!clickSend(input)) {
+        comparison = undefined;
         delete pending.receipt;
         show({label:'질문과 원고를 입력창에 준비했어요. 서비스 보내기 버튼을 눌러 주세요.'});
       } else { show({label:'채팅에서 전송을 확인하고 있어요.'}); watchReceipt(pending); }
@@ -203,11 +234,12 @@ function start(service: Service) {
       // whether to call get_context. Local preflight is never a tool receipt.
       const pending: Sent = {request:{...held},record:result,delivered:false};
       track(pending,req.question);
+      trackComparison(pending,req.question);
       held = undefined;
       save(req.route,''); // Clear the new-page slot before native SPA navigation.
       sent = pending;
       if (!clickSend(input)) {
-        sent = undefined; held = pending.request;
+        sent = undefined; comparison = undefined; held = pending.request;
         save(req.route,req.question); show({label:'보내기 버튼을 사용할 수 없어요. 질문은 입력창에 있어요.'}); return;
       }
       schedule();
@@ -235,7 +267,7 @@ function start(service: Service) {
     const current = page()!;
     const question = editorText(input);
     if (!question.trim() || !needsContext(question) || question.includes(marker)) {
-      if (question.trim()) { dismiss(); held = undefined; save(current,''); }
+      if (question.trim()) { comparison = undefined; dismiss(); held = undefined; save(current,''); }
       return;
     }
     event.preventDefault(); event.stopImmediatePropagation();
@@ -246,7 +278,7 @@ function start(service: Service) {
     if (!current) return;
     const question = editorText(input);
     if (busy || sent?.receipt && sent.receipt.expected === question && !sent.receipt.warned) return;
-    dismiss();
+    comparison = undefined; dismiss();
     const req = held?.route === current && held.question === question ? held : {route:current,question};
     void prepare(input,req,true);
   }
@@ -269,7 +301,7 @@ function start(service: Service) {
   },true);
   window.addEventListener('click', event => {
     if (event.defaultPrevented || dispatching || composing || !(event.target instanceof Element)) return;
-    if (event.target.closest('a[href]')) dismiss();
+    if (event.target.closest('a[href]')) { comparison = undefined; dismiss(); }
     const input = composer(service);
     const button = input && sendButton(service,input);
     if (input && button && button.contains(event.target)) intercept(event,input);
@@ -302,7 +334,7 @@ function start(service: Service) {
       // Some sites render the user turn before assigning the canonical URL.
       if (!sent.receipt) track(sent,sent.request.question);
       if (sent.receipt) sent.receipt.previous = undefined;
-    } else { sent = undefined; }
+    } else { sent = undefined; comparison = undefined; }
     void restore(next);
   }
   function capture(): Promise<boolean> {
@@ -343,7 +375,7 @@ function start(service: Service) {
   function observe() { observer.observe(document,{childList:true,subtree:true,characterData:true}); }
   async function settings() {
     const run = ++generation;
-    epoch++; sent = undefined; held = undefined; savedDraft = undefined; captured.clear(); hide(); grants = {capture:false,share:false,guard:false};
+    epoch++; sent = undefined; comparison = undefined; held = undefined; savedDraft = undefined; captured.clear(); hide(); grants = {capture:false,share:false,guard:false};
     const result = await ask<typeof grants>({type:'settings'}).catch(() => undefined);
     if (run !== generation || !active || !result) return;
     grants = {capture:result.capture === true, share:result.share === true,
@@ -358,6 +390,11 @@ function start(service: Service) {
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (sender.id !== chrome.runtime.id) return;
     if (message?.type === 'settingsChanged') refresh();
+    if (message?.type === 'compareReply' && !sender.tab) {
+      if (message.conversationId !== undefined && message.conversationId !== page()) { respond(unverified); return; }
+      void compareReply().then(respond,() => respond(unverified));
+      return true;
+    }
     if (message?.type === 'flushCapture') {
       if (loading || !active || !grants.capture) { respond({ok:false}); return; }
       const id = epoch;
@@ -365,9 +402,9 @@ function start(service: Service) {
       return true;
     }
   });
-  window.addEventListener('popstate',() => { dismiss(); schedule(); });
+  window.addEventListener('popstate',() => { comparison = undefined; dismiss(); schedule(); });
   window.addEventListener('pagehide', () => {
-    active = false; epoch++; observer.disconnect(); window.clearTimeout(timer); timer = 0; captured.clear(); sent = undefined; hide();
+    active = false; epoch++; observer.disconnect(); window.clearTimeout(timer); timer = 0; captured.clear(); sent = undefined; comparison = undefined; hide();
   });
   window.addEventListener('pageshow', event => {
     if (event.persisted) { active = true; observe(); refresh(); }

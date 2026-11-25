@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "minimum_chrome_version": "120",
   "name": "Growth Brain",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "승인한 상세페이지 원고와 최신 확정안을 ChatGPT와 Claude에서 이어 씁니다.",
   "permissions": ["storage", "alarms"],
   "action": { "default_popup": "popup.html", "default_title": "Growth Brain 연결" },
