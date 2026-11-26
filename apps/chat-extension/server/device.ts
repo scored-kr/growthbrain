@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import WebSocket, { WebSocketServer } from 'ws';
 import { z } from 'zod';
+import { maxDecisionLength, maxProjectDecisions, maxProjectReferences, maxReferenceLength } from '../src/approval-state.ts';
 import { deviceOrigin } from '../src/device-origin.ts';
 import { isNonce, pairingTranscript } from '../src/pairing.ts';
 
@@ -22,7 +23,14 @@ const preference = z
     preference: z.literal('별도 요청이 없으면 제목은 짧게 씁니다.'),
   })
   .strict();
-export const context = z.discriminatedUnion('status', [manuscript, preference]);
+const resume = z.object({
+  status: z.literal('resume'),
+  projectId: z.uuid(),
+  decisions: z.array(z.string().min(1).max(maxDecisionLength)).max(maxProjectDecisions),
+  references: z.array(z.string().min(1).max(maxReferenceLength)).min(1).max(maxProjectReferences).optional(),
+  preference: preference.shape.preference.optional(),
+}).strict().refine(value => value.decisions.length > 0 || Boolean(value.references?.length));
+export const context = z.discriminatedUnion('status', [manuscript, preference, resume]);
 type Context = z.infer<typeof context>;
 export type Service = 'chatgpt' | 'claude';
 type Waiting = {

@@ -6,10 +6,11 @@ import WebSocket from 'ws';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { connectTestClient } from './fixtures/mcp-client.ts';
 import { startRelay } from '../server/relay.ts';
-import { approvedHeadlinePreference } from '../src/preferences.ts';
+import { approveStoredCondition, readGrantedContext, resumePrompt } from '../src/approved-context.ts';
+import { getJournalTurn } from '../src/journal.ts';
 import { deviceOrigin } from '../src/device-origin.ts';
 import { importPairingKey, answerChallenge } from '../src/pairing.ts';
-import { emptyMemory, captureTurn, lookupContext, bindProject } from '../src/memory.ts';
+import { emptyMemory, captureTurn, bindProject } from '../src/memory.ts';
 
 type Service = 'chatgpt' | 'claude';
 const secret = () => randomBytes(32).toString('base64url');
@@ -71,25 +72,7 @@ test('real SDK get_context over HTTP OAuth and a paired synthetic device reads o
     const req = JSON.parse(data.toString());
     if (req.type !== 'get_context') return;
     seen.push(req.service);
-    const result = lookupContext(state, {
-      query: req.query,
-      projectId: substitute ? other : req.projectId,
-      service: req.service,
-      conversationId: 'official',
-      scope: 'service-grant',
-    });
-    const headline = approvedHeadlinePreference({ status: 'accepted' }, req.query);
-    const context = headline
-      ? { status: 'preference', projectId: req.projectId, preference: headline }
-      : result.status === 'found'
-        ? {
-            status: 'found',
-            projectId: result.projectId,
-            option: result.option,
-            version: result.version,
-            text: result.text,
-          }
-        : { status: 'missing' };
+    const context = readGrantedContext(state, {query:req.query, projectId:substitute ? other : req.projectId, service:req.service});
     peer.send(JSON.stringify({ type: 'result', id: req.id, context }));
   });
   const registration = (redirect: string) =>
@@ -133,6 +116,7 @@ test('real SDK get_context over HTTP OAuth and a paired synthetic device reads o
   assert.equal((await get(chatgpt, '찻잔의 최신안 보여줘')).structuredContent?.context.text, old);
   turn('claude', 'new', 'user', '이 문장으로 확정');
   assert.equal((await get(chatgpt, '찻잔의 최신안 보여줘')).structuredContent?.context.text, '달라진 찻잔.' + suffix);
+  state.preferences = {status:'accepted'};
   const preferred = await get(claude, '헤드라인 써줘');
   assert.deepEqual(preferred.structuredContent?.context, {
     status: 'preference',
@@ -153,6 +137,41 @@ test('real SDK get_context over HTTP OAuth and a paired synthetic device reads o
   );
   for (const r of receipts)
     assert.ok(Object.keys(r).every((key) => ['at', 'service', 'projectId', 'option', 'version'].includes(key)));
+  assert.equal((await get(chatgpt, resumePrompt + '\n\n찻잔의 최신안 보여줘')).structuredContent?.context.text, '달라진 찻잔.' + suffix);
+  const question = '지난번 정한 조건대로 다음 작업을 진행해줘';
+  assert.deepEqual((await get(claude, question)).structuredContent?.context, preferred.structuredContent?.context);
+  assert.equal((await get(claude, question + '. 이번에는 제목을 길게 써 줘.')).isError, true);
+  state.preferences = {status:'pending'};
+  assert.equal((await get(claude, question)).isError, true);
+  state.preferences = {status:'accepted'};
+  turn('chatgpt', 'ordinary', 'assistant', 'Unapproved conversation text stays local');
+  const decision = '예약 전에 수량을 확인한다.';
+  captureTurn(state,{service:'chatgpt',conversationId:'ordinary',id:'source-private-marker',role:'user',text:decision});
+  const source = getJournalTurn(state,'chatgpt','ordinary','source-private-marker','user')!;
+  const approval = approveStoredCondition(state,{service:'chatgpt',conversationId:'ordinary',id:source.id,sequence:source.sequence,revision:source.revision,projectId:project,expectedConditionId:null});
+  assert.equal(approval.status, 'approved');
+  const fresh = await connectTestClient(relay,'claude',project);
+  t.after(() => fresh.close());
+  const result = await get(fresh, question);
+  const exported = {context:{status:'resume',projectId:project,decisions:[decision],preference:'별도 요청이 없으면 제목은 짧게 씁니다.'}};
+  assert.deepEqual(result.structuredContent, exported);
+  assert.deepEqual(result.content, [{type:'text',text:JSON.stringify(exported)}]);
+  assert.equal((await get(fresh, '보온병에서 ' + question)).isError, true);
+  const reference = '다른 프로젝트에만 승인된 자료.\n  이 문단과 여백까지 포함.  ';
+  const generated = {id:'assistant-work', role:'assistant', service:'claude', conversationId:'claude-private'} as const;
+  captureTurn(state, {...generated, text:reference});
+  const row = getJournalTurn(state, generated.service, generated.conversationId, generated.id, generated.role)!;
+  assert.equal(approveStoredCondition(state, {...generated, revision:row.revision, sequence:row.sequence, projectId:other, expectedConditionId:null}).status,'approved');
+  const otherClient = await connectTestClient(relay, 'chatgpt', other);
+  t.after(() => otherClient.close());
+  state.preferences = {status:'pending'};
+  const referenceOnly = {context:{status:'resume',projectId:other,decisions:[],references:[reference]}};
+  const next = await get(otherClient, question);
+  assert.deepEqual(next.structuredContent, referenceOnly);
+  assert.deepEqual(next.content, [{type:'text',text:JSON.stringify(referenceOnly)}]);
+  assert.deepEqual((await get(fresh, question)).structuredContent, {context:{status:'resume',projectId:project,decisions:[decision]}});
+  assert.ok(!JSON.stringify(relay.reads()).includes(decision));
+  assert.ok(!JSON.stringify(relay.reads()).includes(reference));
   peer.close();
   await once(peer, 'close');
   assert.equal((await json('/mcp', {})).status, 401);

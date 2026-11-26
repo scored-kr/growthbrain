@@ -31,7 +31,7 @@ cli.on('line', (line) => {
             read.at,
             read.service,
             read.projectId,
-            read.version === undefined ? '확인된 제목 취향' : read.option + '안 v' + read.version,
+            read.resume ? '승인된 프로젝트 맥락' : read.version === undefined ? '확인된 제목 취향' : read.option + '안 v' + read.version,
           ].join(' ') + '\n',
         );
     } else if (cmd === 'approve' && id && projectId) {

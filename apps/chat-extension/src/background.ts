@@ -1,8 +1,11 @@
-import { bindProject, captureTurn, listApprovedProjects, lookupContext, recoverInitialApproval, type Service, type Turn } from './memory.ts'
-import { approvedHeadlinePreference, decideHeadlinePreference, headlinePreferencePending } from './preferences.ts'
+import { bindProject, listApprovedProjects, lookupContext, recoverInitialApproval, type Service, type Turn } from './memory.ts'
+import { approveStoredCondition, listApprovalProjects, readGrantedContext, retireStoredCondition } from './approved-context.ts'
+import { applyCaptureBatch, parseCaptureMessage } from './capture-batch.ts'
+import { decideHeadlinePreference, headlinePreferencePending } from './preferences.ts'
 import { withMemory } from './storage.ts'
 import { startRelay, reconnectRelay } from './device.ts'
-import { savedChatStatus, type CaptureStatus } from './capture-status.ts'
+import { savedChatStatus, type ChatSource, type TurnReference } from './capture-status.ts'
+import { getJournalTurn, readChatJournal } from './journal.ts'
 
 type Grant = { capture: boolean, share: boolean }
 type Grants = Record<Service, Grant>
@@ -77,18 +80,32 @@ async function flushSourceTabs(service: Service, requestingTab?: number) {
   }
 }
 
-async function activeChat(service: Service) {
+async function activeChat(service?: Service): Promise<ChatSource | undefined> {
   const [tab] = await chrome.tabs.query({active:true, lastFocusedWindow:true})
   if (!tab?.id || !tab.url || tab.discarded) return
   const address = chatAddress(tab.url)
-  if (address?.service === service && address.conversationId !== 'new') {
-    return {tabId:tab.id, conversationId:address.conversationId}
+  if (address && (!service || address.service === service) && address.conversationId !== 'new') {
+    return {tabId:tab.id, ...address}
   }
 }
 
-async function chatgptCaptureRestriction(): Promise<CaptureStatus | undefined> {
-  if (await locked()) return {status: 'locked'}
-  if (!(await grants()).chatgpt.capture) return {status: 'capture-off'}
+function sameSource(source: ChatSource, expected: unknown): boolean {
+  if (!expected || typeof expected !== 'object') return false
+  const other = expected as Partial<ChatSource>
+  return source.tabId === other.tabId && source.service === other.service && source.conversationId === other.conversationId
+}
+
+async function captureRestriction(service: Service) {
+  if (await locked()) return {status: 'locked' as const}
+  if (!(await grants())[service].capture) return {status: 'capture-off' as const}
+}
+
+function validReference(value: unknown): value is TurnReference {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Partial<TurnReference>
+  return typeof item.id === 'string' && item.id.length > 0 && item.id.length <= 256 &&
+    (item.role === 'user' || item.role === 'assistant') &&
+    Number.isSafeInteger(item.sequence) && Number.isSafeInteger(item.revision)
 }
 
 type SourceTurn = Pick<Turn, 'id' | 'role' | 'text'>
@@ -99,26 +116,34 @@ function validRecoveryTurns(turns: unknown): turns is SourceTurn[] {
     typeof turn.text === 'string' && turn.text.length > 0 && turn.text.length <= 64_000)
 }
 
-async function checkActiveCapture(): Promise<CaptureStatus> {
-  const source = await activeChat('chatgpt')
+async function activeCaptureAction(m: Record<string, unknown>) {
+  const source = await activeChat()
   if (!source) return {status: 'open-source'}
-  const restriction = await chatgptCaptureRestriction()
+  const checking = m.type === 'checkActiveCapture'
+  if ((!checking || m.before !== undefined || m.source !== undefined) && !sameSource(source, m.source)) return {status:'stale'}
+  const restriction = await captureRestriction(source.service)
   if (restriction) return restriction
 
   // The source responds only after its capture writes through this worker. Holding
   // the serialized queue here would make the check wait on its own writes.
   let recoveryTurns: SourceTurn[] | undefined
+  let observed = 0
+  let readable = 0
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     const receipt = await Promise.race([
       chrome.tabs.sendMessage(source.tabId,
-        {type: 'flushCapture', conversationId: source.conversationId, checkInitialApproval: true}, {frameId: 0}),
+        {type: 'flushCapture', conversationId: source.conversationId, checkInitialApproval: checking && source.service === 'chatgpt'}, {frameId: 0}),
       new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 5000) }),
     ])
-    if (!receipt?.ok) return {status: 'unverified'}
-    if (receipt.conversationId !== source.conversationId) return {status: 'reload'}
+    if (!receipt?.ok) return {status: receipt?.status === 'route-unverified' ? 'route-unverified' : 'unverified'}
+    if (receipt.conversationId !== source.conversationId ||
+        !Number.isSafeInteger(receipt.observed) || receipt.observed < 0 ||
+        !Number.isSafeInteger(receipt.readable) || receipt.readable < 0) return {status: 'reload'}
+    observed = receipt.observed
+    readable = receipt.readable
     if (receipt.recoveryTurns !== undefined) {
-      if (!validRecoveryTurns(receipt.recoveryTurns)) return {status: 'unverified'}
+      if (!checking || source.service !== 'chatgpt' || !validRecoveryTurns(receipt.recoveryTurns)) return {status: 'unverified'}
       recoveryTurns = receipt.recoveryTurns
     }
   } catch {
@@ -129,16 +154,51 @@ async function checkActiveCapture(): Promise<CaptureStatus> {
 
   const interrupted = new Error('Capture check interrupted')
   const requireSameSource = async () => {
-    const current = await activeChat('chatgpt')
-    if (!current || current.tabId !== source.tabId || current.conversationId !== source.conversationId ||
-        await chatgptCaptureRestriction()) throw interrupted
+    if (!sameSource(source, await activeChat()) || await captureRestriction(source.service)) throw interrupted
   }
-  return serialized(async (): Promise<CaptureStatus> => {
+  return serialized(async () => {
     try {
       await requireSameSource()
-      const status = await withMemory(Boolean(recoveryTurns), state => {
-        if (recoveryTurns) recoverInitialApproval(state, source.conversationId, recoveryTurns)
-        return savedChatStatus(state, source.conversationId)
+      const edit = Boolean(recoveryTurns) || m.type === 'approveJournalTurn' || m.type === 'retireJournalCondition'
+      const status = await withMemory(edit, state => {
+        if (checking) {
+          if (recoveryTurns) recoverInitialApproval(state, source.conversationId, recoveryTurns)
+          const result = savedChatStatus(state, source.conversationId, source.service)
+          if (m.preview !== true) return result
+          if (m.before !== undefined && (!Number.isSafeInteger(m.before) || Number(m.before) <= 0)) return {status:'invalid'}
+          const page = readChatJournal(state, source.service, source.conversationId, m.before as number | undefined)
+          const entries = page.entries.map(({id,role,sequence,revision,text}) =>
+            ({id,role,sequence,revision,preview:text.length > 180 ? text.slice(0,180) + '…' : text}))
+          const status = result.status === 'no-turns' && page.savedCount > 0 ? {status:'captured'} : result
+          return {...status, source, observed, readable, entries, savedCount:page.savedCount,
+            trimmedCount:page.trimmedCount, identityLimitReached:page.identityLimitReached, nextBefore:page.nextBefore}
+        }
+
+        const ref = m.turn
+        if (!validReference(ref)) return {status:'invalid'}
+        const turn = getJournalTurn(state, source.service, source.conversationId, ref.id, ref.role)
+        if (!turn || turn.sequence !== ref.sequence || turn.revision !== ref.revision) return {status:'stale'}
+        if (m.type === 'reviewJournalTurn') {
+          const projects = listApprovalProjects(state)
+          const selected = projects.find(project => project.id === m.projectId)
+          if (m.projectId !== undefined && !selected) return {status:'stale'}
+          return {status:'review', text:turn.text, identity:turn.identity, projects:projects.map(({id,title}) => ({id,title})),
+            priorItems:(ref.role === 'user' ? selected?.approvedConditions : selected?.approvedReferences) ?? []}
+        }
+        if (m.type === 'approveJournalTurn') {
+          if ((m.expectedConditionId !== null && !validId(m.expectedConditionId)) ||
+              (m.projectId !== undefined && !validId(m.projectId)) ||
+              (m.newProjectTitle !== undefined && typeof m.newProjectTitle !== 'string')) return {status:'invalid'}
+          return approveStoredCondition(state, {service:source.service,conversationId:source.conversationId,
+            id:ref.id,role:ref.role,sequence:ref.sequence,revision:ref.revision,
+            projectId:m.projectId as string | undefined,newProjectTitle:m.newProjectTitle as string | undefined,
+            expectedConditionId:m.expectedConditionId as string | null})
+        }
+        if (m.type === 'retireJournalCondition' && validId(m.projectId) && validId(m.expectedConditionId)) {
+          const retired = retireStoredCondition(state, m.projectId, m.expectedConditionId, ref.role)
+          return {status:retired ? 'retired' : 'conflict'}
+        }
+        return {status:'invalid'}
       }, requireSameSource)
       await requireSameSource()
       return status
@@ -242,11 +302,13 @@ async function message(raw: unknown, sender: chrome.runtime.MessageSender) {
           result.option === m.option && result.version === m.version && result.sourceService === 'chatgpt'}
       })
     }
-    case 'capture': {
-      if (!grant.capture || conversationId === 'new' || typeof m.id !== 'string' || !m.id || m.id.length > 256 ||
-          (m.role !== 'user' && m.role !== 'assistant') || typeof m.text !== 'string' || m.text.length > 100_000) break
-      const turn = {service, conversationId, id:m.id, role:m.role as 'user'|'assistant', text:m.text}
-      await withMemory(true, state => captureTurn(state, turn))
+    case 'captureLocal':
+    case 'capture':
+    case 'captureBatch': {
+      if (!grant.capture || conversationId === 'new') break
+      const turns = parseCaptureMessage(m, service, conversationId)
+      if (!turns) return {ok:false}
+      await withMemory(true, state => applyCaptureBatch(state, turns))
       return {ok:true}
     }
     case 'lookup': {
@@ -270,8 +332,9 @@ async function message(raw: unknown, sender: chrome.runtime.MessageSender) {
 
 chrome.runtime.onMessage.addListener((m, sender, respond) => {
   async function receive() {
-    if (m?.type === 'checkActiveCapture' && sender.id === chrome.runtime.id && sender.url === chrome.runtime.getURL('popup.html')) {
-      return checkActiveCapture().catch(() => ({status:'storage-error'}))
+    if (['checkActiveCapture', 'reviewJournalTurn', 'approveJournalTurn', 'retireJournalCondition'].includes(m?.type) &&
+        sender.id === chrome.runtime.id && sender.url === chrome.runtime.getURL('popup.html')) {
+      return activeCaptureAction(m).catch(() => ({status:'storage-error'}))
     }
     if (m?.type === 'compareActiveReply' && sender.id === chrome.runtime.id && sender.url === chrome.runtime.getURL('popup.html')) {
       return compareActiveReply().catch(() => ({status:'unverified'}))
@@ -294,15 +357,6 @@ startRelay(async request => {
   await flushSourceTabs(request.service)
   return serialized(async () => {
     if (await locked() || !(await grants())[request.service].share) return {status:'missing'}
-    return withMemory(false, state => {
-      const preference = approvedHeadlinePreference(state.preferences, request.query)
-      if (preference === '별도 요청이 없으면 제목은 짧게 씁니다.' && listApprovedProjects(state).some(p => p.projectId === request.projectId)) {
-        return {status:'preference' as const, projectId:request.projectId, preference}
-      }
-      const result = lookupContext(state, { ...request, conversationId:'mcp', scope:'service-grant' })
-      if (result.status !== 'found' || result.projectId !== request.projectId) return {status:'missing' as const}
-      const { projectId, option, version, text } = result
-      return {status:'found' as const, projectId, option, version, text}
-    })
+    return withMemory(false, state => readGrantedContext(state, request))
   })
 })

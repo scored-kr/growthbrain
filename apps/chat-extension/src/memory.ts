@@ -1,4 +1,6 @@
 /** Local domain state. Callers enforce collection and disclosure consent before invoking these rules. */
+import type { ApprovedItem } from './approval-state.ts'
+import {captureFingerprint as fingerprint, recordStableChatTurn, type ChatJournal} from './journal.ts'
 import {observeHeadlinePreference, type PreferenceState} from './preferences.ts'
 
 export type Service = 'chatgpt' | 'claude'
@@ -25,6 +27,8 @@ type Source = Pick<Turn, 'service' | 'conversationId' | 'id'>
 type Revision = {option: number, version: number, text: string, source: Source}
 type Decision = {option: number, version: number, status: 'adopted' | 'rejected' | 'held', source: Source, reason?: string, withdrawn?: boolean}
 type Project = {
+  approvedConditions?: ApprovedItem[]
+  approvedReferences?: ApprovedItem[]
   id: string
   title: string
   revisions: Revision[]
@@ -41,6 +45,7 @@ type Conversation = {
   seen: {id: string, role: Turn['role'], fingerprint: string}[]
 }
 export interface MemoryState {
+  journal?: ChatJournal
   projects: Project[]
   conversations: Conversation[]
   preferences?: PreferenceState
@@ -91,7 +96,7 @@ function currentDecision(project: Project): Decision | undefined {
 }
 
 export function listApprovedProjects(state: MemoryState): {projectId: string, title: string}[] {
-  return state.projects.filter(project => resolveVersion(project, '최신안')).map(project => ({projectId: project.id, title: project.title}))
+  return state.projects.filter(project => project.approvedConditions?.length || project.approvedReferences?.length || resolveVersion(project, '최신안')).map(project => ({projectId: project.id, title: project.title}))
 }
 
 function resolveVersion(project: Project, query: string): Revision | undefined {
@@ -106,7 +111,7 @@ function resolveVersion(project: Project, query: string): Revision | undefined {
   return revision && !containsAside(revision.text) ? revision : undefined
 }
 
-function namedProjects(projects: Project[], query: string): Project[] {
+export function namedProjects(projects: Project[], query: string): Project[] {
   const normalize = (text: string) => text.normalize('NFC').toLowerCase().replace(/\s+/gu, ' ').trim()
   const phrase = normalize(query)
   const mentions = projects.map(project => ({project, title:normalize(project.title)}))
@@ -165,13 +170,6 @@ export function lookupContext(state: MemoryState, request: ContextRequest): Cont
 
 function source(turn: Turn): Source {
   return {service: turn.service, conversationId: turn.conversationId, id: turn.id}
-}
-
-// Keep only message identity and a local change detector for unrelated turns, never their content.
-function fingerprint(text: string): string {
-  let hash = 2166136261
-  for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619)
-  return text.length + '/' + hash
 }
 
 function briefTitle(text: string): string | undefined {
@@ -290,7 +288,8 @@ function decisionFor(text: string): Pick<Decision, 'option' | 'status' | 'reason
 }
 
 export function captureTurn(state: MemoryState, turn: Turn): void {
-  if (!turn.id || !turn.conversationId || !turn.text.trim() || turn.text.length > 128000) return
+  if (!turn.id || turn.id.startsWith('local:') || !turn.conversationId || !turn.text.trim() || turn.text.length > 128000) return
+  recordStableChatTurn(state, turn)
   const chat = conversation(state, turn.service, turn.conversationId)
   const seen = chat.seen.find(item => item.id === turn.id && item.role === turn.role)
   const signature = fingerprint(turn.text)

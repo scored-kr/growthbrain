@@ -1,5 +1,8 @@
 import {compareFirstSentenceReply, isFirstSentenceEdit, needsContext, type ContextResult, type Service} from './memory.ts';
-import {chatRoute, claudeTurnBaseline, claudeUserId, completedClaudeReply, composer, editorText, initialCaptureTranscript, lastUserNode, noticeAnchor, sendButton, setEditorText, visibleTurns, type Editor} from './adapters.ts';
+import {chatRoute, claudeTurnBaseline, claudeUserId, completedClaudeReply, composer, editorText, initialCaptureTranscript, lastUserNode, noticeAnchor, sendButton, setEditorText, renderedTranscript, transcriptFrames, type Editor} from './adapters.ts';
+import {CaptureRouteGuard} from './capture-route.ts';
+import {resumePrompt as recallInstruction} from './recall-command.ts';
+import {maxCaptureBatchTurns, maxCaptureBatchUnits} from './capture-batch.ts';
 import {ComposerNotice, type NoticeView} from './notice.ts';
 
 type Found = Extract<ContextResult, {status: 'found'}>;
@@ -10,12 +13,15 @@ type Request = {route: string; question: string; projectId?: string};
 type Comparison = { request: Request; base: Found; expected: string; baseline: string[]; userId?: string; replyId?: string };
 const unverified = {status:'unverified'} as const;
 const marker = '\n\n〔Growth Brain 승인 원고 · ';
+const recallCommand = /^\/gb(?:\s+([\s\S]*))?$/i;
+type CaptureScan = {observed:number; readable:number; routeUnverified?:boolean};
 const ask = <T>(message: Record<string, unknown>): Promise<T> => chrome.runtime.sendMessage(message);
 
 function start(service: Service) {
   const page = () => chatRoute(service, location.pathname);
   const notice = new ComposerNotice();
   let route = page();
+  const captureRoute = new CaptureRouteGuard(route);
   let grants = {capture: false, share: false, guard: false};
   let loading: Promise<void> | undefined;
   let awaitingSubmit = false;
@@ -30,8 +36,10 @@ function start(service: Service) {
   let sent: Sent | undefined;
   let savedDraft: Request | undefined;
   let comparison: Comparison | undefined;
-  let committing = Promise.resolve(true);
+  let committing: Promise<CaptureScan | false> = Promise.resolve(false);
   let timer = 0;
+  let scheduledScan = false;
+  let changedDuringScan = false;
   let generation = 0;
   const captured = new Map<string,string>();
 
@@ -246,32 +254,51 @@ function start(service: Service) {
     } finally { busy = false; }
   }
 
+  function handleSubmit(input: Editor, pause: () => void): boolean {
+    if (!grants.guard) return false;
+    const current = page();
+    if (!current) return false;
+    const question = editorText(input);
+    if (current === 'new' && grants.capture) captureRoute.firstSubmit(question, transcriptFrames(service));
+    const command = recallCommand.exec(question.trim());
+    if (command) {
+      pause();
+      if (!grants.share) {
+        show({label:'이 사이트에서 /gb를 쓰려면 확장 팝업에서 AI 전달을 켜세요. 입력한 요청은 그대로 있어요.'});
+        return true;
+      }
+      held = undefined;
+      comparison = undefined;
+      dismiss();
+      const task = command[1]?.trim() || '지난번 정한 조건대로 다음 작업을 진행해줘.';
+      const expanded = recallInstruction + '\n\n' + task;
+      const complete = setEditorText(input,expanded);
+      show({label:complete ? 'MCP 조회를 요청하는 문구를 넣었어요. 확인하고 보내세요. 이 채팅에 Growth Brain MCP가 연결돼 있어야 해요.'
+        : '입력창에 요청을 완성하지 못했어요. 작성 중인 글을 확인해 주세요.'});
+      return true;
+    }
+    if (!question.trim() || question.startsWith(recallInstruction) || !needsContext(question) || question.includes(marker)) {
+      if (question.trim()) { comparison = undefined; dismiss(); held = undefined; save(current,''); }
+      return false;
+    }
+    pause();
+    submitContext(input);
+    return true;
+  }
   function intercept(event: Event, input: Editor) {
     if (dispatching || !event.isTrusted || !page()) return;
-    if (loading) {
-      // document_start can see a native submit before the grant read resolves.
-      // Pause without reading any draft until consent is known.
-      event.preventDefault(); event.stopImmediatePropagation();
-      if (awaitingSubmit) return;
-      awaitingSubmit = true;
-      const target = page(), edits = inputChanges;
-      void loading.then(() => {
-        awaitingSubmit = false;
-        if (!active || page() !== target || composer(service) !== input || edits !== inputChanges) return;
-        if (!grants.guard || !needsContext(editorText(input))) clickSend(input);
-        else submitContext(input);
-      });
-      return;
-    }
-    if (!grants.guard) return;
-    const current = page()!;
-    const question = editorText(input);
-    if (!question.trim() || !needsContext(question) || question.includes(marker)) {
-      if (question.trim()) { comparison = undefined; dismiss(); held = undefined; save(current,''); }
-      return;
-    }
-    event.preventDefault(); event.stopImmediatePropagation();
-    submitContext(input);
+    const pause = () => { event.preventDefault(); event.stopImmediatePropagation(); };
+    if (!loading) { handleSubmit(input,pause); return; }
+    // document_start may receive a submit while we are still reading site consent.
+    pause();
+    if (awaitingSubmit) return;
+    awaitingSubmit = true;
+    const target = page(), edits = inputChanges;
+    void loading.then(() => {
+      awaitingSubmit = false;
+      if (!active || page() !== target || composer(service) !== input || edits !== inputChanges) return;
+      if (!handleSubmit(input,() => {})) clickSend(input);
+    });
   }
   function submitContext(input: Editor) {
     const current = page();
@@ -293,7 +320,8 @@ function start(service: Service) {
         event.defaultPrevented || event.isComposing || composing || composingEnded || event.keyCode === 229) return;
     const input = composer(service);
     if (input && event.target instanceof Node && input.contains(event.target)) {
-      if (event.repeat && (loading || grants.guard) && (busy || needsContext(editorText(input)))) {
+      if (event.repeat && (loading || grants.guard && (busy || recallCommand.test(editorText(input).trim()) ||
+          editorText(input).startsWith(recallInstruction) || needsContext(editorText(input))))) {
         event.preventDefault(); event.stopImmediatePropagation(); return;
       }
       intercept(event,input);
@@ -301,7 +329,22 @@ function start(service: Service) {
   },true);
   window.addEventListener('click', event => {
     if (event.defaultPrevented || dispatching || composing || !(event.target instanceof Element)) return;
-    if (event.target.closest('a[href]')) { comparison = undefined; dismiss(); }
+    const link = event.target.closest<HTMLAnchorElement>('a[href]');
+    if (link) {
+      comparison = undefined; dismiss();
+      if (grants.capture && event.isTrusted && !event.button && !event.ctrlKey && !event.metaKey && !event.shiftKey &&
+          !event.altKey && (!link.target || link.target === '_self') && !link.hasAttribute('download') &&
+          link.origin === location.origin) {
+        const current = page(), next = chatRoute(service,link.pathname);
+        if (current !== next) {
+          captureRoute.beforeNavigation(next, transcriptFrames(service));
+          // A cancelled same-tab click can return to the unchanged original thread.
+          window.setTimeout(() => {
+            if (active && grants.capture && page() === current) captureRoute.cancelNavigation(next,transcriptFrames(service));
+          },1500);
+        }
+      }
+    }
     const input = composer(service);
     const button = input && sendButton(service,input);
     if (input && button && button.contains(event.target)) intercept(event,input);
@@ -323,9 +366,26 @@ function start(service: Service) {
     }
   },true);
 
+  // Chrome fires navigate before a pushState/replaceState/traversal commits.
+  const navigation = (window as Window & {navigation?:EventTarget}).navigation;
+  navigation?.addEventListener('navigate', event => {
+    const {destination,signal} = event as Event & {destination:{url:string}; signal:AbortSignal};
+    if (!active || !grants.capture) return;
+    const url = new URL(destination.url);
+    if (url.origin !== location.origin) return;
+    const current = page(), next = chatRoute(service,url.pathname);
+    if (next === current) return;
+    captureRoute.beforeNavigation(next,transcriptFrames(service));
+    signal.addEventListener('abort',() => {
+      if (active && grants.capture && page() === current) captureRoute.cancelNavigation(next,transcriptFrames(service));
+    },{once:true});
+  });
+  navigation?.addEventListener('currententrychange',() => schedule());
+
   function syncRoute() {
     const next = page();
     if (next === route) return;
+    captureRoute.change(next);
     const previous = route; route = next; epoch++; captured.clear(); held = undefined; savedDraft = undefined; hide();
     if (previous === 'new' && next && sent && sent.request.route === 'new' && !sent.delivered && grants.share) {
       // A URL change alone cannot identify the new conversation. Redisplay only
@@ -335,32 +395,67 @@ function start(service: Service) {
       if (!sent.receipt) track(sent,sent.request.question);
       if (sent.receipt) sent.receipt.previous = undefined;
     } else { sent = undefined; comparison = undefined; }
-    void restore(next);
+    if (!previous && next) refresh();
+    else void restore(next);
   }
-  function capture(): Promise<boolean> {
+  function capture(): Promise<CaptureScan | false> {
     committing = committing.then(async () => {
       syncRoute();
       const current = route;
       const id = epoch;
       if (!active || !grants.capture || !current || current === 'new') return false;
-      for (const turn of visibleTurns(service)) {
+      const snapshot = renderedTranscript(service);
+      if (!captureRoute.permits(snapshot)) return {observed:0,readable:0,routeUnverified:true};
+      const {ordered,observed} = snapshot;
+      const occurrences = new Map<string,number>();
+      let readable = 0;
+      type PendingTurn = {id:string; role:'user'|'assistant'; text:string; cacheKey:string; hash:string};
+      const pending: PendingTurn[] = [];
+      let pendingUnits = 0;
+      const routeGeneration = captureRoute.generation;
+      const currentScan = () => active && grants.capture && epoch === id && page() === current && captureRoute.generation === routeGeneration;
+      async function flush(): Promise<boolean> {
+        if (!currentScan()) return false;
+        if (!pending.length) return true;
+        const turns = pending.map(({id,role,text}) => ({id,role,text}));
+        const result = await ask<{ok:boolean}>({type:'captureBatch',conversationId:current,turns});
+        if (!result?.ok || !currentScan()) return false;
+        for (const entry of pending) captured.set(entry.cacheKey,entry.hash);
+        pending.length = 0;
+        pendingUnits = 0;
+        return true;
+      }
+      for (const turn of ordered) {
         if (page() !== current || epoch !== id || !active) return false;
         if (turn.role === 'user' && turn.text.includes(marker)) continue;
-        const key = `${turn.role}:${turn.id}`;
-        const hash = new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(turn.text))).join(',');
+        readable++;
+        const digest = await crypto.subtle.digest('SHA-256',new TextEncoder().encode(turn.text));
+        const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2,'0')).join('');
+        let messageId = turn.id;
+        if (!messageId) {
+          // No provider ID. Scope identical visible bodies by role and occurrence;
+          // these records have no authority to trigger manuscript or decision rules.
+          const bucket = turn.role + ':' + hash;
+          const occurrence = (occurrences.get(bucket) ?? 0) + 1;
+          occurrences.set(bucket,occurrence);
+          messageId = 'local:' + hash + ':' + occurrence;
+        }
+        const key = turn.role + ':' + messageId;
         if (page() !== current || epoch !== id || !active) return false;
         if (captured.get(key) === hash) continue;
-        if (turn.role === 'user' && sent && sent.request.route === current && turn.text === sent.request.question) {
+        if (turn.id && turn.role === 'user' && sent && sent.request.route === current && turn.text === sent.request.question) {
+          if (!await flush()) return false;
+          if (!currentScan()) return false;
           const acknowledged = await ask<{ok:boolean}>({type:'bind',conversationId:current,projectId:sent.record.projectId});
           if (epoch !== id || page() !== current) return false;
           if (!acknowledged.ok) return false;
         }
-        const result = await ask<{ok:boolean}>({type:'capture',conversationId:current,...turn});
-        if (!result?.ok || epoch !== id) return false;
-        captured.set(key,hash);
+        if ((pending.length >= maxCaptureBatchTurns || pendingUnits + turn.text.length > maxCaptureBatchUnits) && !await flush()) return false;
+        pending.push({id:messageId,role:turn.role,text:turn.text,cacheKey:key,hash});
+        pendingUnits += turn.text.length;
       }
-      return true;
-    }).catch(() => false);
+      return await flush() ? {observed,readable} : false;
+    }).catch(() => false as const);
     return committing;
   }
   function schedule() {
@@ -368,9 +463,17 @@ function start(service: Service) {
     applySavedDraft();
     if (sent) watchReceipt(sent);
     mount();
-    if (!timer && active && grants.capture) {
-      timer = window.setTimeout(() => { timer = 0; void capture(); },80);
-    }
+    if (!active || !grants.capture) return;
+    if (scheduledScan) { changedDuringScan = true; return; }
+    if (timer) return;
+    timer = window.setTimeout(() => {
+      timer = 0;
+      scheduledScan = true;
+      void capture().finally(() => {
+        scheduledScan = false;
+        if (changedDuringScan) { changedDuringScan = false; schedule(); }
+      });
+    },80);
   }
   const observer = new MutationObserver(records => {
     // Streaming can finish and stable message IDs can arrive without a new DOM node.
@@ -383,10 +486,11 @@ function start(service: Service) {
   });
   function observe() {
     observer.observe(document, {childList:true, subtree:true, characterData:true, attributes:true, attributeOldValue:true,
-      attributeFilter:['data-message-id','data-message-author-role','data-turn-id','data-testid','data-is-streaming','aria-busy','class']});
+      attributeFilter:['data-message-id','data-message-author-role','data-turn','data-turn-id','data-testid','data-is-streaming','aria-busy','class']});
   }
   async function settings() {
     const run = ++generation;
+    captureRoute.forgetSubmit();
     epoch++; sent = undefined; comparison = undefined; held = undefined; savedDraft = undefined; captured.clear(); hide(); grants = {capture:false,share:false,guard:false};
     const result = await ask<typeof grants>({type:'settings'}).catch(() => undefined);
     if (run !== generation || !active || !result) return;
@@ -415,13 +519,14 @@ function start(service: Service) {
         respond({ok:false}); return;
       }
       const id = epoch;
-      void capture().then(ok => {
-        if (!ok || !active || id !== epoch || !grants.capture || page() !== current) {
+      void capture().then(scan => {
+        if (!scan || !active || id !== epoch || !grants.capture || page() !== current) {
           respond({ok:false}); return;
         }
+        if (scan.routeUnverified) { respond({ok:false,status:'route-unverified'}); return; }
         const recoveryTurns = service === 'chatgpt' && message.checkInitialApproval === true &&
-          message.conversationId === current ? initialCaptureTranscript() : undefined;
-        respond({ok:true, conversationId:current, recoveryTurns});
+          message.conversationId === current && captureRoute.permits(renderedTranscript(service)) ? initialCaptureTranscript() : undefined;
+        respond({ok:true, conversationId:current, ...scan, recoveryTurns});
       });
       return true;
     }

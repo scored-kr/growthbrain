@@ -31,7 +31,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run build
       - run: npm test
-      - name: Read the approved draft through the product MCP
+      - name: Read approved chat context and manuscripts through the product MCP
         run: node test/mcp-browser.ts --installed
       - name: Run the unpacked extension on fixture chat pages
         run: node test/browser.ts --installed

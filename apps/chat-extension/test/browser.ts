@@ -6,6 +6,9 @@ import type { Page, BrowserContext } from 'playwright';
 import { launchFixtureBrowser, openInstalledPopup } from './fixtures/chromium.ts';
 import { installSimulatedRuntime } from './fixtures/browser-runtime.ts';
 
+import {checkCaptureRouteIsolation} from './capture-route-fixtures.ts';
+import {checkTranscriptAdapters} from './transcript-fixtures.ts';
+
 const installed = process.argv.includes('--installed');
 const query = '어제 고른 2안의 첫 문장만 바꿔줘';
 const token = '자두우체통-731-' + randomUUID();
@@ -247,6 +250,35 @@ async function exercise(context: BrowserContext, popup: Page, focusChat: FocusCh
     }
   }
 
+  await checkCaptureRouteIsolation(context,popup,focusChat);
+  for (const service of ['chatgpt','claude'] as const) {
+    const chat = await useNewChat(context,service);
+    const editor = chat.getByRole('textbox');
+    const task = service === 'claude' ? '오늘 쓸 2안 원고를 이어줘' : '지난번 정한 조건대로 다음 작업을 진행해줘.';
+    await send(chat,service === 'claude' ? '/gb ' + task : '/gb',service === 'chatgpt');
+    await chat.waitForFunction(() => document.querySelector<HTMLElement>('[role="textbox"]')?.innerText.startsWith('Growth Brain의 get_context'));
+    const expanded = await editor.innerText();
+    assert.ok(expanded.endsWith('\n\n' + task));
+    assert.equal(await sent(chat).count(),0);
+    await editor.press('Enter');
+    await confirmSent(chat,0,expanded);
+    await chat.close();
+  }
+
+  const share = popup.locator('#claude-share');
+  await share.uncheck();
+  await popup.waitForFunction(() => document.querySelector('#status')?.textContent?.includes('저장했습니다'));
+  const captureOnly = await useNewChat(context,'claude');
+  await send(captureOnly,'/gb 이어서');
+  await captureOnly.locator('growth-brain-notice').waitFor();
+  assert.equal(await captureOnly.getByRole('textbox').innerText(),'/gb 이어서');
+  assert.equal(await sent(captureOnly).count(),0);
+  await send(captureOnly,'/gbx는 일반 문장이야');
+  await confirmSent(captureOnly,0,'/gbx는 일반 문장이야');
+  await captureOnly.close();
+  await share.check();
+  await popup.waitForFunction(() => document.querySelector('#status')?.textContent?.includes('저장했습니다'));
+
   const ambiguousSource = await useNewChat(context, 'chatgpt');
   await send(ambiguousSource, '캠핑 머그 상세페이지 초안 3개를 써줘.');
   await ambiguousSource.evaluate(() => {
@@ -404,6 +436,7 @@ try {
   } else {
     ({popup, focusChat} = await installSimulatedRuntime(context));
   }
+  await checkTranscriptAdapters(context);
   await exercise(context,popup,focusChat);
   await checkLateReplyCapture(context,popup,focusChat);
   console.log(JSON.stringify({chromium:'passed',sites:'local chat fixtures',runtime:installed?'unpacked MV3':'simulated Chrome messaging',modelResponses:'scripted',liveMcp:false}));

@@ -4,11 +4,12 @@ import type { Service } from './memory.ts';
 declare const __GB_DEVICE_ORIGIN__: string;
 
 type Request = { service: Service; projectId: string; query: string };
-type Context =
+export type DeviceContext =
   | { status: 'missing' }
   | { status: 'found'; projectId: string; option: number; version: number; text: string }
+  | { status: 'resume'; projectId: string; decisions: string[]; references?: string[]; preference?: '별도 요청이 없으면 제목은 짧게 씁니다.' }
   | { status: 'preference'; projectId: string; preference: '별도 요청이 없으면 제목은 짧게 씁니다.' };
-let lookup: (request: Request) => Promise<Context>;
+let lookup: (request: Request) => Promise<DeviceContext>;
 let active: WebSocket | undefined;
 let generation = 0;
 const alarmName = 'growth-brain-device';

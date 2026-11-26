@@ -1,10 +1,12 @@
 export type ChatService = 'chatgpt' | 'claude';
 export type Editor = HTMLTextAreaElement | HTMLElement;
-export interface VisibleTurn {
-  id: string;
+export interface RenderedTurn {
+  id?: string;
   role: 'user' | 'assistant';
   text: string;
 }
+
+export interface VisibleTurn extends RenderedTurn { id: string }
 
 // Limit access to the ordinary chat surface. Project pages, previews and other
 // editors on the same origins must never receive the composer integration.
@@ -90,9 +92,13 @@ function turnContent(node: HTMLElement): HTMLElement {
 // Inspect only the last rendered user turn for our own outstanding submission.
 // This acknowledgement works when the user permits sharing but disables capture.
 export function lastUserNode(service: ChatService): HTMLElement | undefined {
-  const selector = service === 'chatgpt' ? '[data-message-author-role="user"]' : '[data-testid="user-message"]';
-  const nodes = document.querySelectorAll<HTMLElement>(selector);
-  return nodes.length ? turnContent(nodes[nodes.length-1]!) : undefined;
+  const surface = conversationSurface(service);
+  if (!surface) return;
+  for (const marks of [...groupedTurns(surface, service).values()].reverse()) {
+    if (!marks.some(mark => explicitRole(mark, service) === 'user')) continue;
+    const author = uniqueAuthor(marks, service);
+    return author && readBody(author);
+  }
 }
 
 function assistantText(content: HTMLElement): string {
@@ -113,6 +119,7 @@ function assistantText(content: HTMLElement): string {
     }
     const code = pre.querySelector('code');
     if (!code || child.querySelectorAll('pre').length > 1 || /^(?:`{3})/m.test(code.textContent ?? '')) return '';
+    if (child !== pre && child.innerText.trim() !== pre.innerText.trim()) return '';
     const body = code.textContent ?? '';
     blocks.push('```text\n' + body + (body.endsWith('\n') ? '' : '\n') + '```');
   }
@@ -131,18 +138,8 @@ function turnId(node: HTMLElement): string | undefined {
 }
 
 function renderedChatBody(node: HTMLElement): boolean {
-  return node.getClientRects().length > 0 && getComputedStyle(node).visibility === 'visible' &&
+  return node.checkVisibility({checkOpacity:true, checkVisibilityCSS:true}) && node.getClientRects().length > 0 &&
     !node.closest('[hidden],[inert],[aria-hidden="true"],[role="dialog"]');
-}
-
-function chatgptTurnId(node: HTMLElement): string | undefined {
-  if (!renderedChatBody(node) || node.querySelector(sites.chatgpt.turns)) return;
-  // Stop at the nearest turn boundary. A surrounding chat container, a sibling
-  // turn, and a position such as conversation-turn-4 cannot identify a message.
-  const holder = node.closest<HTMLElement>('[data-message-id],[data-turn-id],[data-testid^="conversation-turn-"],article');
-  if (!holder || (holder !== node && holder.querySelectorAll(sites.chatgpt.turns).length !== 1)) return;
-  const id = holder.dataset.messageId || holder.dataset.turnId;
-  return id && id.length <= 160 ? id : undefined;
 }
 
 function turnRole(service: ChatService, node: HTMLElement) {
@@ -150,9 +147,9 @@ function turnRole(service: ChatService, node: HTMLElement) {
   return node.getAttribute('data-message-author-role');
 }
 
-function streaming(service: ChatService, node: HTMLElement): boolean {
+function streaming(service: ChatService, node: HTMLElement, current = true): boolean {
   const busy = '[aria-busy="true"],[data-is-streaming="true"],.result-streaming';
-  return !!(document.querySelector(sites[service].stop) || node.closest(busy) || node.querySelector(busy));
+  return !!((current && document.querySelector(sites[service].stop)) || node.closest(busy) || node.querySelector(busy));
 }
 
 // A baseline contains only the visible turn identities at dispatch. A changed
@@ -210,55 +207,242 @@ export function completedClaudeReply(baseline: string[], userId: string, expecte
   return text.trim() && text.length <= 64_000 ? {id:assistantId,text} : undefined;
 }
 
-export function visibleTurns(service: ChatService): VisibleTurn[] {
-  const output: VisibleTurn[] = [];
-  const nodes = turnNodes(service);
-  const ids = nodes.map(node => service === 'chatgpt' ? chatgptTurnId(node) : turnId(node));
-  const seen = new Set<string>(), duplicates = new Set<string>();
-  if (service === 'chatgpt') for (const id of ids) {
-    if (!id) continue;
-    if (seen.has(id)) duplicates.add(id);
-    seen.add(id);
+// A rendered role or position is not an identity that can approve a remote read.
+const turnBoundary = 'article,[data-testid^="conversation-turn-"]';
+const identitySelector = '[data-message-id],[data-message-uuid],[data-turn-id]';
+const authorMarker = '[data-message-author-role],[data-author-role],[data-turn],[data-role="user"],[data-role="assistant"],' +
+  '[data-testid="user-message"],[data-testid="assistant-message"],[data-testid="conversation-turn-user"],[data-testid="conversation-turn-assistant"]';
+const excluded = 'aside,nav,header,footer,form,[role="navigation"],[role="complementary"],[role="dialog"],[role="menu"],' +
+  '[contenteditable="true"],[hidden],[inert],[aria-hidden="true"],.sr-only,details,[data-message-author-role="tool"],[data-role="tool"],' +
+  '[data-turn="tool"],[data-author-role="tool"],[data-message-author-role="system"],[data-testid^="tool" i],[data-testid*="-tool" i],' +
+  '[data-testid*="thinking" i],[data-testid*="reasoning" i],[data-type="thinking"],[data-testid*="artifact" i]';
+const controls = 'button,[role="button"],[role="toolbar"],.toolbar,[data-testid*="copy" i],[data-testid*="action-bar" i]';
+const captureContent = contentSelector + ',[data-testid="message-content"],.user-message-bubble-color,.whitespace-pre-line';
+type Role = RenderedTurn['role'];
+type ChatIsland = {frame: HTMLElement; author?: HTMLElement; body?: HTMLElement; role?: Role; id?: string; text?: string};
+
+function conversationSurface(service: ChatService): HTMLElement | undefined {
+  const cues = authorMarker + ',[data-testid^="conversation-turn-"]' + (service === 'claude' ? ',.font-claude-response' : '');
+  for (const selector of ['main,[role="main"]', '[data-testid="conversation-panel"],[data-testid="conversation"],[data-testid="chat-messages"],[role="log"]']) {
+    const surfaces = [...document.querySelectorAll<HTMLElement>(selector)].filter(el => renderedChatBody(el) && !el.closest(excluded));
+    if (!surfaces.length) continue;
+    if (surfaces.length === 1) return surfaces[0];
+    const marked = [...document.querySelectorAll<HTMLElement>(cues)].filter(el => renderedChatBody(el) && !el.closest(excluded) && surfaces.some(surface => surface.contains(el)));
+    const eligible = surfaces.filter(surface => marked.some(el => surface.contains(el)));
+    const deepest = eligible.find(surface => eligible.every(other => other.contains(surface)));
+    return deepest && marked.every(el => deepest.contains(el)) ? deepest : undefined;
   }
-  for (const [index, node] of nodes.entries()) {
-    const id = ids[index];
-    const role = turnRole(service,node);
-    if (!id || duplicates.has(id) || (role !== 'user' && role !== 'assistant')) continue;
-    if (role === 'assistant' && node === nodes.at(-1) && streaming(service,node)) continue;
-    const content = turnContent(node);
-    const text = role === 'assistant' ? assistantText(content) : content.innerText;
-    if (text?.trim() && text.length <= 64_000) output.push({id,role,text});
+  // Some normal chats have no main landmark. Select only a shared thread
+  // container of visible service-labelled turns, never the whole document.
+  const selector = service === 'chatgpt' ? '[data-testid^="conversation-turn-"],[data-message-author-role]' :
+    '[data-testid="user-message"],[data-testid="assistant-message"],.font-claude-response';
+  const marked = [...document.querySelectorAll<HTMLElement>(selector)].filter(el => renderedChatBody(el) && !el.closest(excluded));
+  if (marked.length < 2) return;
+  const first = marked[0]!;
+  for (let parent = first.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+    if (marked.every(el => parent!.contains(el)) && !parent.matches(selector)) return parent;
   }
-  return output;
 }
 
-// Recovery requires the visible initial exchange in chronological order.
-// An ordinary scan can skip unknown blocks; an approval replay cannot.
-export function initialCaptureTranscript(): VisibleTurn[] | undefined {
-  const main = document.querySelector('main');
-  if (!main || document.querySelectorAll('main').length !== 1) return;
-  const authors = [...main.querySelectorAll<HTMLElement>(sites.chatgpt.turns)];
-  if (authors.length !== 3 && authors.length !== 4) return;
-  const boundary = 'article,[data-testid^="conversation-turn-"]';
-  const frames: HTMLElement[] = [];
-  for (const [i, author] of authors.entries()) {
-    const role = i % 2 === 0 ? 'user' : 'assistant';
-    if (turnRole('chatgpt', author) !== role || !chatgptTurnId(author)) return;
-    const frame = author.closest<HTMLElement>(boundary) ?? author.closest<HTMLElement>('[data-message-id],[data-turn-id]');
-    if (!frame || !main.contains(frame) || streaming('chatgpt', frame)) return;
-    // Unlike the second turn, a fourth turn has no subsequent user message
-    // proving that its generation finished. A quiet DOM alone is insufficient.
-    if (i === 3 && frame.dataset.isStreaming !== 'false' && !hasCompletionEvidence(author)) return;
-    const content = turnContent(author);
-    if (!content.matches(contentSelector) || !renderedChatBody(content)) return;
-    // Distinct rendered bodies might include a tool result or private aside.
-    if ([...frame.querySelectorAll(contentSelector)].some(part => !content.contains(part) && !part.contains(content))) return;
-    frames.push(frame);
+function explicitRole(node: HTMLElement, service: ChatService): Role | undefined {
+  const names = [node.dataset.messageAuthorRole, node.dataset.authorRole, node.dataset.turn, node.dataset.role];
+  const test = node.dataset.testid?.match(/^(?:conversation-turn-(user|assistant)|(user|assistant)-message)$/u);
+  if (test) names.push(test[1] ?? test[2]);
+  if (service === 'claude' && node.matches('.font-claude-response')) names.push('assistant');
+  const labels = new Set(names.filter(Boolean));
+  if (labels.size !== 1) return;
+  if (labels.has('user')) return 'user';
+  if (labels.has('assistant')) return 'assistant';
+}
+
+function bodyParts(author: HTMLElement): HTMLElement[] {
+  const marked = [author, ...author.querySelectorAll<HTMLElement>(captureContent)]
+    .filter(el => el.matches(captureContent) && renderedChatBody(el) && !el.closest(excluded));
+  const selected = new Set(marked);
+  return marked.filter(el => {
+    for (let parent = el.parentElement; parent && author.contains(parent); parent = parent.parentElement) {
+      if (selected.has(parent)) return false;
+    }
+    return true;
+  });
+}
+
+function readBody(author: HTMLElement): HTMLElement | undefined {
+  const outer = bodyParts(author);
+  if (outer.length > 1) return;
+  let body = outer[0] ?? author;
+  if (!outer.length) {
+    // Plain paragraphs can sit inside an identified message with the speaker
+    // only on its outer wrapper. A sole-child chain preserves that association.
+    let current = author;
+    while (current.childElementCount === 1 && ![...current.childNodes].some(node => node.nodeType === Node.TEXT_NODE && node.nodeValue?.trim())) {
+      const child = current.firstElementChild;
+      if (!(child instanceof HTMLElement) || !renderedChatBody(child) || child.closest(excluded)) break;
+      if (child.matches(identitySelector)) body = child;
+      current = child;
+    }
   }
+  if (body.querySelector(excluded + ',' + controls)) return;
+  // Chromium's innerText can include text under opacity:0. Render it only
+  // through the local filtered walk when any descendant is not visibly painted.
+  if ([...body.querySelectorAll<HTMLElement>('*')].some(el => el.childNodes.length && !el.checkVisibility({checkOpacity:true,checkVisibilityCSS:true}))) return;
+  // Without a canonical text element, accept only plain rendered paragraphs.
+  if (!outer.length && [...body.querySelectorAll('*')].some(el => !el.matches('div,span,p,br,strong,b,em,i,ul,ol,li,pre,code'))) return;
+  return body;
+}
+
+// A local transcript can retain explicitly authored rich text whose structure is
+// insufficient to approve a manuscript. Never read the entire turn container or
+// serialize a cloned subtree: walk only supported visible text nodes.
+function localBodyText(author: HTMLElement): string | undefined {
+  const parts = bodyParts(author);
+  const roots = parts.length ? parts : [author];
+  const chunks: string[] = [];
+  let length = 0;
+  const newline = () => { if (chunks.length && !chunks.at(-1)!.endsWith('\n')) chunks.push('\n'); };
+  function visit(node: Node) {
+    if (length > 64_000) return;
+    if (node.nodeType === Node.TEXT_NODE) {
+      const value = node.nodeValue ?? '';
+      length += value.length;
+      chunks.push(value);
+      return;
+    }
+    if (!(node instanceof HTMLElement) || node.matches(excluded + ',' + controls) ||
+        !node.matches('article,section,div,p,span,b,strong,em,i,small,br,ul,ol,li,pre,code,blockquote,a,h1,h2,h3,h4,h5,h6,table,thead,tbody,tr,th,td,hr,mark,s,u,sub,sup') ||
+        !renderedChatBody(node)) return;
+    if (node.tagName === 'BR') { newline(); return; }
+    const block = /^(block|list-item|table.*|flex|grid|flow-root)$/.test(getComputedStyle(node).display);
+    if (block) newline();
+    for (const child of node.childNodes) visit(child);
+    if (block) newline();
+  }
+  for (const root of roots) { newline(); visit(root); }
+  const text = chunks.join('').trim();
+  return text && text.length <= 64_000 && length <= 64_000 ? text : undefined;
+}
+
+function explicitMessageId(frame: HTMLElement, body: HTMLElement): string | undefined {
+  // Use only IDs along the actual body-to-frame chain; sibling controls and
+  // quoted IDs inside a user's text don't identify the surrounding turn.
+  const messageIds = new Set<string>(), turnIds = new Set<string>();
+  for (let el: HTMLElement | null = body; el; el = el.parentElement) {
+    if (el.dataset.messageId) messageIds.add(el.dataset.messageId);
+    if (el.dataset.messageUuid) messageIds.add(el.dataset.messageUuid);
+    if (el.dataset.turnId) turnIds.add(el.dataset.turnId);
+    if (el === frame) break;
+  }
+  if (messageIds.size > 1 || turnIds.size > 1) return;
+  const id = [...messageIds][0] ?? [...turnIds][0];
+  return id && id.length <= 160 && !/^(?:local:|(?:conversation-turn-)?[0-9]+$)/iu.test(id) ? id : undefined;
+}
+
+function groupedTurns(surface: HTMLElement, service: ChatService): Map<HTMLElement, HTMLElement[]> {
+  const selector = service === 'claude' ? authorMarker + ',.font-claude-response' : authorMarker;
+  const groups = new Map<HTMLElement, HTMLElement[]>();
+  const candidates = surface.querySelectorAll<HTMLElement>(selector + ',[data-testid^="conversation-turn-"]');
+  for (const node of candidates) {
+    if (!renderedChatBody(node) || node.closest(excluded)) continue;
+    let outer = node;
+    for (let parent = node.parentElement; parent && parent !== surface; parent = parent.parentElement) {
+      if (parent.matches(turnBoundary)) break;
+      if (parent.matches(selector)) outer = parent;
+    }
+    const boundary = outer.closest<HTMLElement>(turnBoundary);
+    const holder = outer.closest<HTMLElement>(identitySelector);
+    const frame = boundary && surface.contains(boundary) ? boundary :
+      holder && holder !== surface && surface.contains(holder) ? holder : outer;
+    const marks = groups.get(frame) ?? [];
+    if (node.matches(selector)) marks.push(node);
+    groups.set(frame, marks);
+  }
+  return groups;
+}
+
+function uniqueAuthor(marks: HTMLElement[], service: ChatService): HTMLElement | undefined {
+  // A repeated label in one wrapper chain is a single speaker. Siblings or
+  // contradictory labels can denote distinct messages or alternative branches.
+  const author = marks.at(-1);
+  const role = author && explicitRole(author, service);
+  return role && marks.every(el => el.contains(author!) && explicitRole(el, service) === role) ? author : undefined;
+}
+
+function captureIslands(surface: HTMLElement, service: ChatService): ChatIsland[] {
+  const groups = groupedTurns(surface, service);
+  const latest = [...groups.keys()].at(-1);
+  const islands: ChatIsland[] = [];
+  for (const [frame, marks] of groups) {
+    const island: ChatIsland = {frame};
+    islands.push(island);
+    let author = uniqueAuthor(marks, service);
+    const unambiguous = Boolean(author);
+    if (!author && service === 'claude' && marks[0]?.matches('[data-testid="assistant-message"]') &&
+        marks.slice(1).every(mark => marks[0]!.contains(mark) && mark.matches('.font-claude-response') && explicitRole(mark, service) === 'assistant')) {
+      author = marks[0];
+    }
+    const role = author && explicitRole(author, service);
+    if (!role || !author || (role === 'assistant' && streaming(service, frame, frame === latest))) continue;
+    const body = unambiguous ? readBody(author) : undefined;
+    const exact = body && (role === 'assistant' ? assistantText(body) : body.innerText);
+    const text = exact || localBodyText(author);
+    if (!text?.trim() || text.length > 64_000) continue;
+    const multipleRoles = frame.querySelector('[data-message-author-role="tool"],[data-message-author-role="system"],[data-role="tool"]');
+    Object.assign(island, {role, author, body, text, id:!multipleRoles && exact && body ? explicitMessageId(frame, body) : undefined});
+  }
+  return islands;
+}
+
+function orderedTranscript(islands: ChatIsland[]): RenderedTurn[] {
+  const ids = new Set<string>(), duplicates = new Set<string>();
+  for (const {id} of islands) {
+    if (id && ids.has(id)) duplicates.add(id);
+    if (id) ids.add(id);
+  }
+  const ordered: RenderedTurn[] = [];
+  let reliable = true;
+  for (const {role, text, id} of islands) {
+    // An unreadable newer reply could contain different drafts. Never apply a
+    // subsequent approval to the older drafts by silently skipping over it.
+    if (!id || duplicates.has(id)) reliable = false;
+    if (role && text) ordered.push(reliable && id ? {id, role, text} : {role, text});
+  }
+  return ordered;
+}
+
+// DOM handles stay in the content script to distinguish an unchanged source
+// subtree during same-document navigation. This read does not inspect text.
+export function transcriptFrames(service: ChatService): HTMLElement[] {
+  const surface = conversationSurface(service);
+  return surface ? [...groupedTurns(surface, service).keys()] : [];
+}
+
+export function renderedTranscript(service: ChatService): {ordered: RenderedTurn[]; observed: number; frames: HTMLElement[]; surface?: HTMLElement} {
+  const surface = conversationSurface(service);
+  const islands = surface ? captureIslands(surface, service) : [];
+  return {ordered:orderedTranscript(islands), observed:islands.length, frames:islands.map(island => island.frame), surface};
+}
+
+export function visibleTurns(service: ChatService): VisibleTurn[] {
+  return renderedTranscript(service).ordered.filter((turn): turn is VisibleTurn => turn.id !== undefined);
+}
+
+export function initialCaptureTranscript(): VisibleTurn[] | undefined {
+  const surface = conversationSurface('chatgpt');
+  if (!surface) return;
+  const islands = captureIslands(surface, 'chatgpt');
+  if (islands.length !== 3 && islands.length !== 4) return;
+  const turns = orderedTranscript(islands);
+  if (turns.length !== islands.length || !turns.every((turn): turn is VisibleTurn => turn.id !== undefined)) return;
+  const frames = islands.map(island => island.frame);
   const siblings = frames[0]?.parentElement?.children;
   if (siblings?.length !== frames.length || frames.some((frame, i) => siblings[i] !== frame)) return;
-  const marked = main.querySelectorAll(boundary + ',[data-message-id],[data-turn-id]');
+  const marked = surface.querySelectorAll(turnBoundary + ',' + identitySelector);
   if ([...marked].some(mark => !frames.some(frame => frame.contains(mark)))) return;
-  const turns = visibleTurns('chatgpt');
-  return turns.length === authors.length && turns.every((turn, i) => turn.id === chatgptTurnId(authors[i]!)) ? turns : undefined;
+  for (const [i, island] of islands.entries()) {
+    if (island.role !== (i % 2 === 0 ? 'user' : 'assistant') || !island.body || !island.author ||
+        !island.body.matches(captureContent) || streaming('chatgpt', island.frame)) return;
+    if ([...island.frame.querySelectorAll(captureContent)].some(part => !island.body!.contains(part) && !part.contains(island.body!))) return;
+    if (i === 3 && island.frame.dataset.isStreaming !== 'false' && !hasCompletionEvidence(island.author)) return;
+  }
+  return turns;
 }

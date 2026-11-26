@@ -35,12 +35,21 @@ export function decideHeadlinePreference(
 // Copy retrieval, targeted edits and creative constraints keep their own instructions.
 const defaultStyleRequest = /^(?:(?:내|나의|우리)\s*)?(?:(?:공통|기본)\s*)?(?:제목|헤드라인)\s*(?:취향|선호(?:도)?|스타일)(?:은|는|을|이)?\s*(?:뭐야|어때|알려\s*줘|보여\s*줘)[?.!]?$/u
 const neutralHeadlineRequest = /^(?:(?:이|새)\s*)?(?:상세\s*페이지\s*)?(?:제목|헤드라인)(?:을|만)?\s*(?:써|작성해|만들어|추천해)\s*(?:줘|주세요)[.!]?$/u
+const shortHeadline = '별도 요청이 없으면 제목은 짧게 씁니다.'
 
 export function approvedHeadlinePreference(
   state: PreferenceState | undefined, query: string
-): string | undefined {
+): typeof shortHeadline | undefined {
   if (state?.status !== 'accepted') return
   if (defaultStyleRequest.test(query.trim()) || neutralHeadlineRequest.test(query.trim())) {
-    return '별도 요청이 없으면 제목은 짧게 씁니다.'
+    return shortHeadline
   }
+}
+
+export function resumeHeadlinePreference(state: PreferenceState | undefined, task: string) {
+  if (state?.status !== 'accepted') return
+  // Any requested headline or style constraints use the existing strict style-query rules.
+  if (/제목|헤드라인|타이틀|스타일|선호|취향|짧|길게|긴\s|길이|단어|글자|분량/u.test(task))
+    return approvedHeadlinePreference(state, task)
+  return shortHeadline
 }
