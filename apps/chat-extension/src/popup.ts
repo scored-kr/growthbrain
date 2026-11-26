@@ -1,5 +1,6 @@
 import type { Service } from './memory.ts'
-import { clearCapturePreview } from './journal-popup.ts'
+import { clearCapturePreview, refreshActiveCapture } from './journal-popup.ts'
+import { clearCaptureSummary, enableOfferedCapture } from './capture-overview.ts'
 
 const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 const status = byId('status')
@@ -26,7 +27,7 @@ async function refreshProjects() {
 }
 async function refresh() {
   const request = ++settingsRequest
-  clearCapturePreview()
+  refreshActiveCapture()
   void refreshProjects()
   const settings = await send({type:'permissions'})
   if (request !== settingsRequest) return
@@ -39,6 +40,7 @@ async function refresh() {
       box.disabled = settings.locked
       box.onchange = async () => {
         clearCapturePreview()
+        clearCaptureSummary()
         box.disabled = true
         const r = await send({type:'setGrant',service,field,value:box.checked}).catch(() => undefined)
         status.textContent = r?.ok ? '권한을 저장했습니다.' : '권한을 저장하지 못했습니다.'
@@ -51,6 +53,7 @@ async function refresh() {
   lock.textContent = settings.locked ? '이 프로필에서 잠금 해제' : '기억 일시 잠금'
   lock.onclick = async () => {
     clearCapturePreview()
+    clearCaptureSummary()
     lock.disabled = true
     const updated = await send({type:'lock',value:!settings.locked}).catch(() => undefined)
     if (!updated?.ok) status.textContent = '잠금 상태를 변경하지 못했습니다.'
@@ -76,6 +79,12 @@ async function refresh() {
   }
 }
 
+byId('enable-capture').onclick = async () => {
+  const result = await enableOfferedCapture()
+  if (result === undefined) return
+  status.textContent = result ? '' : '대화 수집을 켜지 못했어요. 현재 탭의 권한 상태를 다시 확인하세요.'
+  refreshSettings()
+}
 byId('compare-reply').onclick = async () => {
   const output = byId('compare-result')
   delete output.dataset.status

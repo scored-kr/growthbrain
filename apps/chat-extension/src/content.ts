@@ -37,6 +37,7 @@ function start(service: Service) {
   let savedDraft: Request | undefined;
   let comparison: Comparison | undefined;
   let committing: Promise<CaptureScan | false> = Promise.resolve(false);
+  let lastCapture: {epoch:number; routeGeneration:number; scan:CaptureScan | false} | undefined;
   let timer = 0;
   let scheduledScan = false;
   let changedDuringScan = false;
@@ -404,8 +405,13 @@ function start(service: Service) {
       const current = route;
       const id = epoch;
       if (!active || !grants.capture || !current || current === 'new') return false;
+      const receipt = {epoch:id,routeGeneration:captureRoute.generation,scan:false as CaptureScan | false};
+      lastCapture = receipt;
       const snapshot = renderedTranscript(service);
-      if (!captureRoute.permits(snapshot)) return {observed:0,readable:0,routeUnverified:true};
+      if (!captureRoute.permits(snapshot)) {
+        receipt.scan = {observed:0,readable:0,routeUnverified:true};
+        return receipt.scan;
+      }
       const {ordered,observed} = snapshot;
       const occurrences = new Map<string,number>();
       let readable = 0;
@@ -454,7 +460,9 @@ function start(service: Service) {
         pending.push({id:messageId,role:turn.role,text:turn.text,cacheKey:key,hash});
         pendingUnits += turn.text.length;
       }
-      return await flush() ? {observed,readable} : false;
+      if (!await flush()) return false;
+      receipt.scan = {observed,readable};
+      return receipt.scan;
     }).catch(() => false as const);
     return committing;
   }
@@ -506,6 +514,21 @@ function start(service: Service) {
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (sender.id !== chrome.runtime.id) return;
     if (message?.type === 'settingsChanged') refresh();
+    if (message?.type === 'captureHealth' && !sender.tab) {
+      // Reading the popup must not force a scan or replay an approval.
+      const conversationId = page();
+      if (!active || message.conversationId !== conversationId || !conversationId || conversationId === 'new') { respond(unverified); return; }
+      const receipt = lastCapture;
+      if (loading || !grants.capture || route !== conversationId || !receipt || receipt.epoch !== epoch ||
+          receipt.routeGeneration !== captureRoute.generation || scheduledScan || timer) {
+        respond({conversationId,health:'pending'});
+      } else if (!receipt.scan || receipt.scan.routeUnverified) {
+        respond({conversationId,health:receipt.scan ? 'route-unverified' : 'unverified'});
+      } else {
+        respond({conversationId,observed:receipt.scan.observed,readable:receipt.scan.readable});
+      }
+      return;
+    }
     if (message?.type === 'compareReply' && !sender.tab) {
       if (message.conversationId !== undefined && message.conversationId !== page()) { respond(unverified); return; }
       void compareReply().then(respond,() => respond(unverified));

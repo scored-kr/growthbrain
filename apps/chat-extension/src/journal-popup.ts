@@ -1,5 +1,7 @@
 import type { CapturePreview, CaptureStatus, TurnReference } from './capture-status.ts'
 import { maxDecisionLength, maxProjectDecisions, maxProjectReferences, maxReferenceLength } from './approval-state.ts'
+import { refreshCaptureSummary, showVerifiedSummary } from './capture-overview.ts'
+import { chatRoute } from './adapters.ts'
 
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T
 const send = (message: object) => chrome.runtime.sendMessage(message).catch(() => undefined)
@@ -49,6 +51,11 @@ export function clearCapturePreview() {
   delete output.dataset.status
 }
 
+export function refreshActiveCapture() {
+  clearCapturePreview()
+  refreshCaptureSummary()
+}
+
 const captureMessages = {
   'open-source': '확인할 ChatGPT 또는 Claude 일반 대화 탭에서 열어 주세요.',
   'locked': '기억이 잠겨 있어요. 이 프로필에서 잠금을 해제한 뒤 확인하세요.',
@@ -74,9 +81,11 @@ async function loadPage(older = false) {
   output.dataset.status = result?.status ?? 'unverified'
   if (!result?.source || !Array.isArray(result.entries)) {
     output.textContent = captureMessages[result?.status as keyof typeof captureMessages] ?? captureMessages.unverified
+    refreshCaptureSummary()
     return
   }
   page = result as CapturePreview
+  showVerifiedSummary(page)
   const lines = [`이 대화에 ${page.savedCount}건 저장.`]
   if (!page.observed) lines.push('현재 화면에서는 인식할 수 있는 메시지 영역을 찾지 못했어요.')
   else if (!page.readable) lines.push(`메시지 영역 ${page.observed}개를 찾았지만 발화자와 본문을 확인할 수 없어요.`)
@@ -136,7 +145,7 @@ async function readSelection(ref: TurnReference, projectId?: string) {
 }
 
 function stopPreview(status = 'stale') {
-  clearCapturePreview()
+  refreshActiveCapture()
   output.hidden = false
   output.dataset.status = status
   output.textContent = captureMessages[status as keyof typeof captureMessages] ?? captureMessages.stale
@@ -236,8 +245,19 @@ el('journal-older').onclick = () => loadPage(true)
 el('close-journal-review').onclick = clearReview
 approve.onclick = () => applyDecision(false)
 retire.onclick = () => applyDecision(true)
-chrome.tabs.onActivated?.addListener(() => clearCapturePreview())
-chrome.tabs.onRemoved?.addListener(tabId => { if (tabId === page?.source.tabId) clearCapturePreview() })
-chrome.tabs.onUpdated?.addListener((tabId, change) => {
-  if (tabId === page?.source.tabId && (change.url || change.status === 'loading')) clearCapturePreview()
+chrome.tabs.onActivated?.addListener(refreshActiveCapture)
+chrome.tabs.onRemoved?.addListener(tabId => { if (tabId === page?.source.tabId) refreshActiveCapture() })
+chrome.tabs.onUpdated?.addListener((tabId, change, tab) => {
+  if ((!tab.active && tabId !== page?.source.tabId) || (!change.url && !change.status)) return
+  const source = page?.source
+  const rawUrl = change.url || tab.url
+  if (source && tabId === source.tabId && rawUrl && (change.url || change.status === 'complete')) {
+    const url = new URL(rawUrl)
+    const origin = source.service === 'chatgpt' ? 'https://chatgpt.com' : 'https://claude.ai'
+    if (url.origin === origin && chatRoute(source.service,url.pathname) === source.conversationId) {
+      refreshCaptureSummary()
+      return
+    }
+  }
+  refreshActiveCapture()
 })

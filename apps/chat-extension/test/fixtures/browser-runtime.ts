@@ -11,6 +11,7 @@ interface FixtureRuntime {
   receive(message: unknown, sender: object): Promise<unknown>;
   listChatTabs(query?: {active?:boolean, lastFocusedWindow?:boolean}): Promise<{id:number,url:string}[]>;
   sendToTab(tabId:number,message:unknown): Promise<unknown>;
+  emitTabEvent(type:'activated'|'updated', args:unknown[]): void;
 }
 
 /**
@@ -42,6 +43,10 @@ function installChromeShim({ id, origin }: {id: string; origin: string}) {
     }
   };
   const changed = events();
+  const activated = events(), updated = events();
+  root.emitTabEvent = (type, args) => {
+    for (const listener of (type === 'activated' ? activated : updated).listeners) listener(...args);
+  };
   function storage(area: string) {
     function read(): Record<string, unknown> {
       return JSON.parse(localStorage.getItem('fixture-' + area) || '{}');
@@ -79,7 +84,7 @@ function installChromeShim({ id, origin }: {id: string; origin: string}) {
     storage: { local: storage('local'), session: storage('session'), onChanged: changed },
     alarms: { create: async () => {}, clear: async () => true, onAlarm: events() },
     tabs: {
-      onRemoved: events(), onUpdated: events(), query: (query: {active?:boolean, lastFocusedWindow?:boolean}) => root.listChatTabs(query),
+      onRemoved: events(), onActivated: activated, onUpdated: updated, query: (query: {active?:boolean, lastFocusedWindow?:boolean}) => root.listChatTabs(query),
       sendMessage: (id: number, message: unknown) => root.sendToTab(id,message),
     },
   });
@@ -103,6 +108,19 @@ export async function installSimulatedRuntime(context: BrowserContext): Promise<
   // An action popup leaves its host chat selected in the last-focused window.
   // All tabs in this fixture belong to window 1. Tests set the tab as a user would.
   let selected: Page | undefined;
+  const tabId = (page: Page) => {
+    if (!ids.has(page)) ids.set(page, ++nextTabId);
+    return ids.get(page)!;
+  };
+  async function notifyTabs(type:'activated'|'updated', args:unknown[]) {
+    await Promise.all(context.pages().filter(page => page.url().startsWith(fixtureOrigin + '/')).map(page =>
+      page.evaluate(({type,args}) => (window as unknown as FixtureRuntime).emitTabEvent?.(type,args), {type,args}).catch(() => {})));
+  }
+  context.on('page', page => page.on('framenavigated', frame => {
+    if (frame !== page.mainFrame() || !/^https:\/\/(chatgpt\.com|claude\.ai)\//.test(page.url())) return;
+    const id = tabId(page), url = page.url();
+    void notifyTabs('updated', [id, {url,status:'complete'}, {id,url,active:selected === page,windowId:1}]);
+  }));
   await context.exposeBinding('listChatTabs', (_source, query = {}) => context.pages().flatMap(page => {
     if (query.active === true && selected !== page) return [];
     const id = ids.get(page);
@@ -114,7 +132,7 @@ export async function installSimulatedRuntime(context: BrowserContext): Promise<
       (window as unknown as FixtureRuntime).receive(message,{id}), {message,id:extensionId});
   });
   await context.exposeBinding('sendToWorker', async ({page}, message: unknown) => {
-    if (!ids.has(page)) ids.set(page, ++nextTabId);
+    tabId(page);
     const url = page.url();
     const sender = { id:extensionId, origin:new URL(url).origin, url, frameId:0,
       tab:{ id:ids.get(page), url, windowId:1 } };
@@ -135,5 +153,10 @@ export async function installSimulatedRuntime(context: BrowserContext): Promise<
   }, content);
   const popup = await context.newPage();
   await popup.goto(fixtureOrigin + '/popup.html');
-  return {popup, async focusChat(page) { await page.bringToFront(); selected = page; }};
+  return {popup, async focusChat(page) {
+    const changed = selected !== page;
+    await page.bringToFront();
+    selected = page;
+    if (changed) await notifyTabs('activated', [{tabId:tabId(page),windowId:1}]);
+  }};
 }

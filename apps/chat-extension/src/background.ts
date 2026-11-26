@@ -5,7 +5,7 @@ import { decideHeadlinePreference, headlinePreferencePending } from './preferenc
 import { withMemory } from './storage.ts'
 import { startRelay, reconnectRelay } from './device.ts'
 import { savedChatStatus, type ChatSource, type TurnReference } from './capture-status.ts'
-import { getJournalTurn, readChatJournal } from './journal.ts'
+import { chatJournalCounts, getJournalTurn, readChatJournal } from './journal.ts'
 
 type Grant = { capture: boolean, share: boolean }
 type Grants = Record<Service, Grant>
@@ -41,6 +41,14 @@ async function clearDrafts(service?: Service, tab?: number) {
 async function announce() {
   const tabs = await chrome.tabs.query({url: ['https://chatgpt.com/*', 'https://claude.ai/*']})
   await Promise.allSettled(tabs.filter(t => t.id !== undefined).map(t => chrome.tabs.sendMessage(t.id!, {type:'settingsChanged'})))
+}
+
+async function saveGrant(settings: Grants, service: Service, field: keyof Grant, value: boolean) {
+  settings[service][field] = value
+  await chrome.storage.local.set({grants:settings})
+  if (!value) await clearDrafts(service)
+  void announce().catch(() => {})
+  return {ok:true}
 }
 
 function chatAddress(raw: string): {service: Service, conversationId: string} | undefined {
@@ -80,11 +88,11 @@ async function flushSourceTabs(service: Service, requestingTab?: number) {
   }
 }
 
-async function activeChat(service?: Service): Promise<ChatSource | undefined> {
+async function activeChat(service?: Service, includeNew = false): Promise<ChatSource | undefined> {
   const [tab] = await chrome.tabs.query({active:true, lastFocusedWindow:true})
   if (!tab?.id || !tab.url || tab.discarded) return
   const address = chatAddress(tab.url)
-  if (address && (!service || address.service === service) && address.conversationId !== 'new') {
+  if (address && (!service || address.service === service) && (includeNew || address.conversationId !== 'new')) {
     return {tabId:tab.id, ...address}
   }
 }
@@ -98,6 +106,41 @@ function sameSource(source: ChatSource, expected: unknown): boolean {
 async function captureRestriction(service: Service) {
   if (await locked()) return {status: 'locked' as const}
   if (!(await grants())[service].capture) return {status: 'capture-off' as const}
+}
+
+type CaptureHealth = {health:'pending'|'unverified'|'route-unverified'|'reload'} | {observed:number; readable:number}
+
+async function lastCaptureHealth(source: ChatSource): Promise<CaptureHealth> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const result = await Promise.race([
+      chrome.tabs.sendMessage(source.tabId, {type:'captureHealth',conversationId:source.conversationId}, {frameId:0}),
+      new Promise<undefined>(resolve => { timer = setTimeout(() => resolve(undefined), 1500) }),
+    ])
+    if (!result) return {health:'reload'}
+    if (result.conversationId !== source.conversationId) return {health:'unverified'}
+    if (result.health === 'pending' || result.health === 'route-unverified') return {health:result.health}
+    if (Number.isSafeInteger(result.observed) && result.observed >= 0 && Number.isSafeInteger(result.readable) &&
+        result.readable >= 0 && result.readable <= result.observed) return {observed:result.observed,readable:result.readable}
+    return {health:'unverified'}
+  } catch { return {health:'reload'} }
+  finally { clearTimeout(timer) }
+}
+
+async function summarizeActiveCapture() {
+  const source = await activeChat(undefined,true)
+  if (!source) return {status:'open-source'}
+  const restriction = await captureRestriction(source.service)
+  const health = !restriction && source.conversationId !== 'new' ? await lastCaptureHealth(source) : undefined
+  return serialized(async () => {
+    if (!sameSource(source,await activeChat(undefined,true))) return {status:'stale'}
+    const current = await captureRestriction(source.service)
+    if (current) return {status:current.status,service:source.service}
+    if (source.conversationId === 'new') return {status:'new-chat',service:source.service}
+    const counts = await withMemory(false,state => chatJournalCounts(state,source.service,source.conversationId))
+    if (!sameSource(source,await activeChat(undefined,true))) return {status:'stale'}
+    return {status:'summary',service:source.service,...counts,...(health ?? {health:'pending'})}
+  })
 }
 
 function validReference(value: unknown): value is TurnReference {
@@ -237,13 +280,14 @@ async function message(raw: unknown, sender: chrome.runtime.MessageSender) {
     const settings = await grants()
     switch (m.type) {
       case 'permissions': return {grants:settings, locked:await locked(), paired:Boolean((await chrome.storage.session.get('pairToken')).pairToken)}
+      case 'enableActiveCapture': {
+        if (!isService(m.service) || await locked() || !await activeChat(m.service,true)) return {ok:false}
+        if (settings[m.service].capture) return {ok:true}
+        return saveGrant(settings,m.service,'capture',true)
+      }
       case 'setGrant': {
         if (!isService(m.service) || (m.field !== 'share' && m.field !== 'capture') || typeof m.value !== 'boolean') break
-        settings[m.service][m.field] = m.value
-        await chrome.storage.local.set({grants:settings})
-        if (!m.value) await clearDrafts(m.service)
-        void announce().catch(() => {})
-        return {ok:true}
+        return saveGrant(settings,m.service,m.field,m.value)
       }
       case 'lock': {
         if (typeof m.value !== 'boolean') break
@@ -332,6 +376,9 @@ async function message(raw: unknown, sender: chrome.runtime.MessageSender) {
 
 chrome.runtime.onMessage.addListener((m, sender, respond) => {
   async function receive() {
+    if (m?.type === 'summarizeActiveCapture' && sender.id === chrome.runtime.id && sender.url === chrome.runtime.getURL('popup.html')) {
+      return summarizeActiveCapture().catch(() => ({status:'storage-error'}))
+    }
     if (['checkActiveCapture', 'reviewJournalTurn', 'approveJournalTurn', 'retireJournalCondition'].includes(m?.type) &&
         sender.id === chrome.runtime.id && sender.url === chrome.runtime.getURL('popup.html')) {
       return activeCaptureAction(m).catch(() => ({status:'storage-error'}))

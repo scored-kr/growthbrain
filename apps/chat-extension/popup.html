@@ -8,20 +8,12 @@
 </head>
 <body>
   <h1>Growth Brain</h1>
-  <p>대화 수집을 켜면 열린 일반 채팅의 메시지를 이 Chrome 프로필에 암호화해 저장합니다.</p>
-  <table>
-    <thead><tr><th scope="col">사이트</th><th scope="col">대화 수집</th><th scope="col">AI 전달</th></tr></thead>
-    <tbody>
-      <tr><th scope="row">ChatGPT</th>
-        <td><input type="checkbox" disabled id="chatgpt-capture" aria-label="ChatGPT 대화 수집"></td>
-        <td><input type="checkbox" disabled id="chatgpt-share" aria-label="ChatGPT AI 전달"></td></tr>
-      <tr><th scope="row">Claude</th>
-        <td><input type="checkbox" disabled id="claude-capture" aria-label="Claude 대화 수집"></td>
-        <td><input type="checkbox" disabled id="claude-share" aria-label="Claude AI 전달"></td></tr>
-    </tbody>
-  </table>
-  <p>저장한 대화는 기기에 보관합니다. AI 전달을 켜면 해당 AI 서비스가 승인한 선호도·프로젝트 조건·참고자료와 확정한 원고를 읽을 수 있습니다. 사이트 계정을 바꿀 때는 먼저 전달을 끄세요.</p>
-  <button id="check-capture" type="button">저장한 메시지 확인</button>
+  <section id="capture-overview" aria-labelledby="capture-heading">
+    <h2 id="capture-heading">이 탭의 저장 상태</h2>
+    <p id="capture-summary" role="status">현재 탭의 저장 기록을 확인하고 있어요.</p>
+    <button id="enable-capture" type="button" hidden></button>
+    <button id="check-capture" type="button">저장한 메시지 보기</button>
+  </section>
   <p id="capture-result" aria-live="polite" hidden></p>
   <section id="journal" hidden>
     <h2>이 대화에 저장한 메시지</h2>
@@ -53,6 +45,19 @@
     <p id="approval-result" aria-live="polite"></p>
     <button id="close-journal-review" type="button">원문 닫기</button>
   </section>
+  <p>대화 수집을 켜면 열린 일반 채팅의 메시지를 이 Chrome 프로필에 암호화해 저장합니다.</p>
+  <table>
+    <thead><tr><th scope="col">사이트</th><th scope="col">대화 수집</th><th scope="col">AI 전달</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">ChatGPT</th>
+        <td><input type="checkbox" disabled id="chatgpt-capture" aria-label="ChatGPT 대화 수집"></td>
+        <td><input type="checkbox" disabled id="chatgpt-share" aria-label="ChatGPT AI 전달"></td></tr>
+      <tr><th scope="row">Claude</th>
+        <td><input type="checkbox" disabled id="claude-capture" aria-label="Claude 대화 수집"></td>
+        <td><input type="checkbox" disabled id="claude-share" aria-label="Claude AI 전달"></td></tr>
+    </tbody>
+  </table>
+  <p>저장한 대화는 기기에 보관합니다. AI 전달을 켜면 해당 AI 서비스가 승인한 선호도·프로젝트 조건·참고자료와 확정한 원고를 읽을 수 있습니다. 사이트 계정을 바꿀 때는 먼저 전달을 끄세요.</p>
   <button id="lock" type="button" disabled>기억 일시 잠금</button>
   <button id="compare-reply" type="button">Claude 답변 대조</button>
   <p id="compare-result" aria-live="polite"></p>

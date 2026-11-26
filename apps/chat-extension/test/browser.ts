@@ -8,6 +8,7 @@ import { installSimulatedRuntime } from './fixtures/browser-runtime.ts';
 
 import {checkCaptureRouteIsolation} from './capture-route-fixtures.ts';
 import {checkTranscriptAdapters} from './transcript-fixtures.ts';
+import {checkAutomaticCaptureStatus} from './auto-status-fixtures.ts';
 
 const installed = process.argv.includes('--installed');
 const query = '어제 고른 2안의 첫 문장만 바꿔줘';
@@ -436,9 +437,12 @@ try {
   } else {
     ({popup, focusChat} = await installSimulatedRuntime(context));
   }
-  await checkTranscriptAdapters(context);
-  await exercise(context,popup,focusChat);
-  await checkLateReplyCapture(context,popup,focusChat);
+  if (!process.argv.includes('--auto-status-only')) {
+    await checkTranscriptAdapters(context);
+    await exercise(context,popup,focusChat);
+    await checkLateReplyCapture(context,popup,focusChat);
+  }
+  await checkAutomaticCaptureStatus(context,popup,focusChat);
   console.log(JSON.stringify({chromium:'passed',sites:'local chat fixtures',runtime:installed?'unpacked MV3':'simulated Chrome messaging',modelResponses:'scripted',liveMcp:false}));
 } finally {
   await context.close();

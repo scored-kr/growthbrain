@@ -93,10 +93,24 @@ export function getJournalTurn(state: MemoryState, service: Service, conversatio
   return row && preview(row)
 }
 
+function belongsToChat(service: Service, conversationId: string) {
+  return (row: StoredTurn | TrimmedTurn) => row.service === service && row.conversationId === conversationId
+}
+
+/** The popup's automatic receipt contains only committed counts. */
+export function chatJournalCounts(state: MemoryState, service: Service, conversationId: string) {
+  const inChat = belongsToChat(service, conversationId)
+  return {
+    savedCount:state.journal?.retained.filter(inChat).length ?? 0,
+    trimmedCount:state.journal?.trimmed.filter(inChat).length ?? 0,
+    identityLimitReached:state.journal?.identityLimitReached ?? false,
+  }
+}
+
 /** Local popup only. A cursor is the oldest sequence on the preceding page. */
 export function readChatJournal(state: MemoryState, service: Service, conversationId: string, before?: number) {
   const journal = state.journal
-  const inChat = (row: StoredTurn | TrimmedTurn) => row.service === service && row.conversationId === conversationId
+  const inChat = belongsToChat(service, conversationId)
   const retained = journal?.retained.filter(inChat) ?? []
   const available = retained.filter(row => before === undefined || row.sequence < before)
   const entries = available.slice(-journalLimits.pageSize).reverse().map(preview)
